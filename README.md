@@ -21,8 +21,6 @@ backend/
     repositories/
     routes/
     services/
-legacy-react-src/
-  โค้ด React เดิมที่เก็บไว้เป็น reference
 ```
 
 ## Development
