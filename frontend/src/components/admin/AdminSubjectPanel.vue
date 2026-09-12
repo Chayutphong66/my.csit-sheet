@@ -1,8 +1,15 @@
-<template>
+﻿<template>
   <section class="page-panel">
-    <p class="eyebrow">Admin</p>
-    <h1>Subject</h1>
-    <p>พื้นที่สำหรับจัดการรายวิชา หมวดหมู่ หรือโครงสร้าง subject ที่จะกำหนด data type ภายหลัง</p>
-    <div class="placeholder-box">Subject management placeholder</div>
+    <div class="panel__header">
+      <div>
+        <p class="eyebrow">Academic structure</p>
+        <h1>Subjects</h1>
+        <p>Course and instructor data currently comes from the seeded metadata catalog.</p>
+      </div>
+    </div>
+    <div class="empty-state">
+      <h2>รอเพิ่ม</h2>
+      <p>- เพิ่ม ลบ แก้ไข รายวิชาหน้านี้ </p>
+    </div>
   </section>
 </template>

@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AuthPanel from '@/components/auth/AuthPanel.vue'
@@ -17,25 +17,25 @@ async function submit() {
 </script>
 
 <template>
-  <AuthPanel title="สมัครสมาชิก" subtitle="สร้างบัญชีสำหรับอัปโหลดและติดตามชีทสรุปของคุณ" :error="auth.error">
+  <AuthPanel title="Create account" subtitle="Register to submit study material and track administrator review decisions." :error="auth.error">
     <form class="form" @submit.prevent="submit">
       <label>
-        ชื่อผู้ใช้
-        <input v-model="form.username" required minlength="3" />
+        Username
+        <input v-model="form.username" required minlength="3" placeholder="student01" />
       </label>
       <label>
-        อีเมล
-        <input v-model="form.email" type="email" required />
+        Email
+        <input v-model="form.email" type="email" required placeholder="student@nu.ac.th" />
       </label>
       <label>
-        รหัสผ่าน
-        <input v-model="form.password" type="password" required minlength="6" />
+        Password
+        <input v-model="form.password" type="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters" />
       </label>
       <p v-if="message" class="form-success">{{ message }}</p>
       <button class="button button--primary button--wide" :disabled="auth.loading">
-        {{ auth.loading ? 'กำลังสมัคร...' : 'สมัครสมาชิก' }}
+        {{ auth.loading ? 'Creating account...' : 'Create account' }}
       </button>
-      <RouterLink to="/login" class="text-link">มีบัญชีอยู่แล้ว</RouterLink>
+      <RouterLink to="/login" class="text-link">I already have an account</RouterLink>
     </form>
   </AuthPanel>
 </template>

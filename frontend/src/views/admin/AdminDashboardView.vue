@@ -1,11 +1,11 @@
-<script setup>
+﻿<script setup>
 import DashboardShell from '@/components/layout/DashboardShell.vue'
 
 const navItems = [
-  { label: 'Request', to: '/admin/request' },
-  { label: 'Upload', to: '/admin/upload' },
+  { label: 'Requests', to: '/admin/request' },
+  { label: 'Publish', to: '/admin/upload' },
   { label: 'Status', to: '/admin/status' },
-  { label: 'Subject', to: '/admin/subject' },
+  { label: 'Subjects', to: '/admin/subject' },
   { label: 'Dashboard', to: '/admin/dashboard' }
 ]
 </script>

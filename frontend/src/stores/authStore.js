@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { authApi } from '@/services/api'
+import { authApi } from '@/services/auth.service'
 
 const state = reactive({
   ready: false,

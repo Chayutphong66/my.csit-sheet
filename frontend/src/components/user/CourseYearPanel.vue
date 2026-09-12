@@ -1,0 +1,11 @@
+<script setup>
+import { onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { documentApi, downloadDocumentBlob, openDocumentBlob } from '@/services/document.service'
+const props = defineProps({ documentType: { type: String, default: '' } })
+const route = useRoute(); const data = ref(null); const error = ref(''); const busy = ref('')
+onMounted(async () => { try { data.value = await documentApi.courseYear(route.params.courseId, route.params.year, props.documentType) } catch (_error) { error.value = 'Unable to load documents.' } })
+async function view(document) { busy.value = document.id; try { openDocumentBlob((await documentApi.view(document)).blob) } catch (_error) { error.value = 'Unable to preview the file.' } finally { busy.value = '' } }
+async function download(document) { busy.value = document.id; try { downloadDocumentBlob((await documentApi.download(document)).blob, document.fileName) } catch (_error) { error.value = 'Unable to download the file.' } finally { busy.value = '' } }
+</script>
+<template><section class="page-panel"><p v-if="error" class="form-error">{{ error }}</p><div v-if="!data" class="loading-state">Loading semesters...</div><template v-else><p class="eyebrow">{{ data.course.code }}</p><h1>{{ data.course.name }}</h1><p>Academic Year {{ data.academicYear }}</p><section v-for="group in data.semesters" :key="group.semester"><div class="panel__header"><h2>Semester {{ group.semester }}</h2><span class="count-pill">{{ group.documentCount }}</span></div><div class="request-list"><article v-for="document in group.documents" :key="`${document.documentType}-${document.id}`" class="request-card"><div class="request-card__main"><span class="status status--approved">{{ document.documentType }}</span><h3>{{ document.title }}</h3><p>{{ document.fileName }} · {{ document.instructor || 'CSIT' }}</p></div><div class="table-actions"><button class="button button--ghost" :disabled="busy === document.id" @click="view(document)">View</button><button class="button button--primary" :disabled="busy === document.id" @click="download(document)">Download</button></div></article></div></section><div v-if="!data.semesters.length" class="empty-state"><h2>No published documents</h2></div></template></section></template>

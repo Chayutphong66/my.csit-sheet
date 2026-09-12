@@ -43,6 +43,11 @@ export function createUser(user) {
   return findUserById(user.id)
 }
 
+export function updateUserPassword(id, password) {
+  db.prepare('UPDATE users SET password = ? WHERE id = ?').run(password, id)
+  return findUserById(id)
+}
+
 export function countUsers() {
   return db.prepare('SELECT COUNT(*) AS count FROM users').get().count
 }

@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AuthPanel from '@/components/auth/AuthPanel.vue'
@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/authStore'
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
-const form = reactive({ usernameOrEmail: 'user@csitsheet.app', password: 'User@1234' })
+const form = reactive({ usernameOrEmail: '', password: '' })
 
 async function submit() {
   const user = await auth.login(form)
@@ -17,20 +17,20 @@ async function submit() {
 </script>
 
 <template>
-  <AuthPanel title="เข้าสู่ระบบ" subtitle="ใช้บัญชีทดลอง user@csitsheet.app / User@1234 หรือ admin@csitsheet.app / Admin@1234" :error="auth.error">
+  <AuthPanel title="Welcome back" subtitle="Sign in with your CSIT Sheet account to browse, upload, and review learning material." :error="auth.error">
     <form class="form" @submit.prevent="submit">
       <label>
-        อีเมลหรือชื่อผู้ใช้
-        <input v-model="form.usernameOrEmail" autocomplete="username" required />
+        Email or username
+        <input v-model="form.usernameOrEmail" autocomplete="username" required placeholder="user@csitsheet.app" />
       </label>
       <label>
-        รหัสผ่าน
-        <input v-model="form.password" type="password" autocomplete="current-password" required />
+        Password
+        <input v-model="form.password" type="password" autocomplete="current-password" required placeholder="Your password" />
       </label>
       <button class="button button--primary button--wide" :disabled="auth.loading">
-        {{ auth.loading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ' }}
+        {{ auth.loading ? 'Signing in...' : 'Sign in' }}
       </button>
-      <RouterLink to="/register" class="text-link">สมัครสมาชิกใหม่</RouterLink>
+      <RouterLink to="/register" class="text-link">Create an account</RouterLink>
     </form>
   </AuthPanel>
 </template>

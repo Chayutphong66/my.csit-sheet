@@ -3,12 +3,13 @@ import axios from 'axios'
 const API_URL = import.meta.env.VITE_API_URL ?? '/api'
 
 let accessToken = null
+let refreshPromise = null
 
 export function setAccessToken(token) {
   accessToken = token
 }
 
-const apiClient = axios.create({
+export const apiClient = axios.create({
   baseURL: API_URL,
   withCredentials: true,
   headers: {
@@ -25,96 +26,34 @@ apiClient.interceptors.request.use((config) => {
 
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const config = error.config
+    const isAuthRoute = String(config?.url ?? '').startsWith('/auth/')
+    if (error.response?.status === 401 && config && !config._retry && !config.skipAuthRefresh && !isAuthRoute) {
+      config._retry = true
+      refreshPromise ??= apiClient
+        .post('/auth/refresh', null, { skipAuthRefresh: true })
+        .then((response) => {
+          setAccessToken(response.data.accessToken)
+          return response.data.accessToken
+        })
+        .finally(() => {
+          refreshPromise = null
+        })
+      try {
+        const token = await refreshPromise
+        config.headers.Authorization = `Bearer ${token}`
+        return apiClient(config)
+      } catch {
+        setAccessToken(null)
+      }
+    }
     const message = error.response?.data?.message ?? error.message ?? 'Request failed'
     return Promise.reject(new Error(message))
   }
 )
 
-async function request(config) {
+export async function request(config) {
   const response = await apiClient(config)
   return response.status === 204 ? null : response.data
-}
-
-export const authApi = {
-  async login(credentials) {
-    const data = await request({
-      url: '/auth/login',
-      method: 'POST',
-      data: credentials
-    })
-    setAccessToken(data.accessToken)
-    return data
-  },
-  register(credentials) {
-    return request({
-      url: '/auth/register',
-      method: 'POST',
-      data: credentials
-    })
-  },
-  async refresh() {
-    try {
-      const data = await request({ url: '/auth/refresh', method: 'POST' })
-      setAccessToken(data.accessToken)
-      return data
-    } catch {
-      setAccessToken(null)
-      return null
-    }
-  },
-  async logout() {
-    await request({ url: '/auth/logout', method: 'POST' }).catch(() => null)
-    setAccessToken(null)
-  }
-}
-
-export const sheetApi = {
-  mine: () => request({ url: '/sheets/mine' }),
-  all: () => request({ url: '/sheets/all' }),
-  metadata: () => request({ url: '/sheets/metadata' }),
-  catalog: (type) => request({ url: `/sheets/catalog?type=${encodeURIComponent(type ?? '')}` }),
-  createUploadRequest: (data) =>
-    request({ url: '/sheets/upload-requests', method: 'POST', data }),
-  uploadRequests: () => request({ url: '/sheets/upload-requests' }),
-  uploadRequest: (id) => request({ url: `/sheets/upload-requests/${id}` }),
-  downloadUploadRequestFile: (id) =>
-    apiClient
-      .get(`/sheets/upload-requests/${id}/file`, { responseType: 'blob' })
-      .then((response) => response.data),
-  completeUploadRequest: (id, data) =>
-    request({ url: `/sheets/upload-requests/${id}/complete`, method: 'PATCH', data }),
-  notifications: () => request({ url: '/sheets/notifications' }),
-  readNotification: (id) =>
-    request({ url: `/sheets/notifications/${id}/read`, method: 'PATCH' }),
-  adminUploadRequests: () => request({ url: '/admin/upload-requests' }),
-  adminDownloadUploadRequestFile: (id) =>
-    apiClient
-      .get(`/admin/upload-requests/${id}/file`, { responseType: 'blob' })
-      .then((response) => response.data),
-  adminUsers: () => request({ url: '/admin/users' }),
-  adminCreateUploadRequest: (data) =>
-    request({ url: '/admin/upload-requests', method: 'POST', data }),
-  approveUploadRequest: (id, data) =>
-    request({ url: `/admin/upload-requests/${id}/approve`, method: 'PATCH', data }),
-  rejectUploadRequest: (id, reason) =>
-    request({
-      url: `/admin/upload-requests/${id}/reject`,
-      method: 'PATCH',
-      data: { reason }
-    }),
-  pending: () => request({ url: '/admin/sheets/pending' }),
-  stats: () => request({ url: '/admin/stats' }),
-  approve: (id) => request({ url: `/admin/sheets/${id}/approve`, method: 'PATCH' }),
-  reject: (id, reason) =>
-    request({
-      url: `/admin/sheets/${id}/reject`,
-      method: 'PATCH',
-      data: { reason }
-    })
-}
-
-export const lectureApi = {
-  all: () => request({ url: '/lectures' }),
-  one: (id) => request({ url: `/lectures/${id}` })
 }

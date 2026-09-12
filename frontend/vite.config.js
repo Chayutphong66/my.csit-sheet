@@ -8,6 +8,10 @@ const __dirname = path.dirname(__filename)
 
 export default defineConfig({
   plugins: [vue()],
+  test: {
+    environment: 'jsdom',
+    globals: true
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src')

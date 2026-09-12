@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { sheetApi } from '@/services/api'
+import { userApi } from '@/services/user.service'
 
 const state = reactive({
   items: [],
@@ -16,7 +16,7 @@ export function useNotificationStore() {
     state.loading = true
     state.error = ''
     try {
-      state.items = (await sheetApi.notifications()) ?? []
+      state.items = (await userApi.notifications()) ?? []
     } catch (error) {
       state.error = error.message
     } finally {
@@ -27,7 +27,7 @@ export function useNotificationStore() {
   async function markRead(id) {
     const item = state.items.find((notification) => notification.id === id)
     if (!item || item.isRead) return
-    await sheetApi.readNotification(id)
+    await userApi.readNotification(id)
     item.isRead = true
   }
 

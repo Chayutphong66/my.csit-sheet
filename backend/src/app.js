@@ -1,28 +1,80 @@
 import express from 'express'
 import cors from 'cors'
+import helmet from 'helmet'
 import cookieParser from 'cookie-parser'
+import { existsSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import authRoutes from './routes/auth.routes.js'
 import sheetRoutes from './routes/sheet.routes.js'
 import adminRoutes from './routes/admin.routes.js'
 import lectureRoutes from './routes/lecture.routes.js'
+import uploadRequestRoutes from './routes/uploadRequest.routes.js'
+import notificationRoutes from './routes/notification.routes.js'
+import { courseRouter, documentRouter } from './routes/document.routes.js'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const frontendDist = path.resolve(__dirname, '../../frontend/dist')
 
 const app = express()
+const isProduction = process.env.NODE_ENV === 'production'
+const configuredOrigins = (process.env.ALLOWED_ORIGINS || process.env.FRONTEND_URL || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean)
+const allowedOrigins = configuredOrigins.length > 0
+  ? configuredOrigins
+  : isProduction
+    ? []
+    : ['http://127.0.0.1:5173', 'http://localhost:5173']
 
+app.use(helmet())
 app.use(cors({
-  origin: process.env.FRONTEND_URL ?? 'http://127.0.0.1:5173',
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true)
+      return
+    }
+    callback(new Error('CORS origin not allowed'))
+  },
   credentials: true
 }))
 app.use(express.json({ limit: '30mb' }))
 app.use(cookieParser())
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV === 'test') return next()
+  const startedAt = Date.now()
+  res.on('finish', () => {
+    console.info(`${req.method} ${req.path} ${res.statusCode} ${Date.now() - startedAt}ms`)
+  })
+  next()
+})
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'csit-sheet-api', port: Number(process.env.PORT ?? 8080) })
+  res.json({ status: 'ok' })
 })
 
 app.use('/api/auth', authRoutes)
 app.use('/api/sheets', sheetRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/lectures', lectureRoutes)
+app.use('/api/upload-requests', uploadRequestRoutes)
+app.use('/api/notifications', notificationRoutes)
+app.use('/api/courses', courseRouter)
+app.use('/api/documents', documentRouter)
+
+app.use('/api', (req, res) => {
+  res.status(404).json({ message: `Route not found: ${req.method} ${req.originalUrl}` })
+})
+
+if (isProduction && existsSync(frontendDist)) {
+  app.use(express.static(frontendDist))
+  app.use((req, res, next) => {
+    if (req.method !== 'GET') return next()
+    res.sendFile(path.join(frontendDist, 'index.html'))
+  })
+}
 
 app.use((req, res) => {
   res.status(404).json({ message: `Route not found: ${req.method} ${req.originalUrl}` })
@@ -30,7 +82,10 @@ app.use((req, res) => {
 
 app.use((error, _req, res, _next) => {
   const status = error.status ?? 500
-  res.status(status).json({ message: error.message ?? 'Internal server error' })
+  const message = status < 500 || error.expose || !isProduction
+    ? error.message
+    : 'Internal server error'
+  res.status(status).json({ message: message ?? 'Internal server error' })
 })
 
 export default app

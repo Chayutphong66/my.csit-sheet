@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js'
+import { validateIdParam } from '../middleware/validation.middleware.js'
 import * as adminController from '../controllers/admin.controller.js'
 
 const router = Router()
@@ -7,10 +8,11 @@ const router = Router()
 router.use(requireAuth, requireRole('ADMIN'))
 router.get('/users', adminController.getUsers)
 router.get('/upload-requests', adminController.getUploadRequests)
-router.get('/upload-requests/:id/file', adminController.getUploadRequestFile)
+router.get('/upload-requests/:id/file', validateIdParam, adminController.getUploadRequestFile)
 router.post('/upload-requests', adminController.createUploadRequestAsAdmin)
-router.patch('/upload-requests/:id/approve', adminController.approveUploadRequest)
-router.patch('/upload-requests/:id/reject', adminController.rejectUploadRequest)
+router.patch('/upload-requests/:id/approve', validateIdParam, adminController.approveUploadRequest)
+router.patch('/upload-requests/:id/reject', validateIdParam, adminController.rejectUploadRequest)
+router.patch('/upload-requests/:id/reject-duplicate', validateIdParam, adminController.rejectDuplicateUploadRequest)
 router.get('/sheets/pending', adminController.getPendingSheets)
 router.patch('/sheets/:id/approve', adminController.approveSheet)
 router.patch('/sheets/:id/reject', adminController.rejectSheet)

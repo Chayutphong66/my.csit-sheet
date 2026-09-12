@@ -2,9 +2,16 @@ import crypto from 'node:crypto'
 import {
   createUser,
   findUserByEmailOrUsername,
-  findUserById as findUserRecordById
+  findUserById as findUserRecordById,
+  updateUserPassword
 } from '../repositories/user.repository.js'
-import { createAccessToken, createRefreshToken, getUserIdByRefreshToken, revokeRefreshToken } from './token.service.js'
+import { hashPassword, isPasswordHash, verifyPassword } from './password.service.js'
+import {
+  createAccessToken,
+  createRefreshToken,
+  consumeRefreshToken,
+  revokeRefreshToken
+} from './token.service.js'
 
 function publicUser(user) {
   const { password, ...safeUser } = user
@@ -13,10 +20,14 @@ function publicUser(user) {
 
 export function login({ usernameOrEmail, password }) {
   const user = findUserByEmailOrUsername(usernameOrEmail)
-  if (!user || user.password !== password) {
+  if (!user || !verifyPassword(password, user.password)) {
     const error = new Error('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง')
     error.status = 401
     throw error
+  }
+
+  if (!isPasswordHash(user.password)) {
+    updateUserPassword(user.id, hashPassword(password))
   }
 
   return {
@@ -37,7 +48,7 @@ export function register({ username, email, password }) {
     id: crypto.randomUUID(),
     username,
     email,
-    password,
+    password: hashPassword(password),
     role: 'USER',
     avatarUrl: '',
     isVerified: true,
@@ -48,13 +59,16 @@ export function register({ username, email, password }) {
 }
 
 export function refresh(refreshToken) {
-  const userId = getUserIdByRefreshToken(refreshToken)
-  const user = findUserRecordById(userId)
+  const session = consumeRefreshToken(refreshToken)
+  if (!session) return null
+
+  const user = findUserRecordById(session.userId)
   if (!user) return null
 
   return {
     user: publicUser(user),
-    accessToken: createAccessToken(user)
+    accessToken: createAccessToken(user),
+    refreshToken: session.refreshToken
   }
 }
 

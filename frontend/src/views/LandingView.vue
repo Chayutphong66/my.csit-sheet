@@ -1,13 +1,13 @@
-<script setup>
+﻿<script setup>
 import AppNavbar from '@/components/layout/AppNavbar.vue'
 
 const features = [
-  { title: 'ค้นหาชีทได้เร็ว', body: 'รวมชีทสรุปตามรายวิชา พร้อมสถานะตรวจสอบจากผู้ดูแลระบบ' },
-  { title: 'อัปโหลดเป็นระบบ', body: 'นักศึกษาส่งชีทพร้อมรายละเอียดวิชา แล้วติดตามผลอนุมัติได้ใน Dashboard' },
-  { title: 'เหมาะกับทีมแอดมิน', body: 'หน้า Admin แยกรายการรอตรวจ สถิติ และการอนุมัติไว้ชัดเจน' }
+  { title: 'Separate catalogs', body: 'Lecture files and summary sheets stay distinct, searchable, and easy to understand.' },
+  { title: 'Reviewed uploads', body: 'Students submit material with course metadata and track every approval decision.' },
+  { title: 'Admin workflow', body: 'Moderators review pending uploads, publish approved files, and keep the library trustworthy.' }
 ]
 
-const steps = ['อัปโหลดชีท', 'กรอกรายละเอียด', 'รอตรวจสอบ', 'เผยแพร่ให้ดาวน์โหลด']
+const steps = ['Find a course', 'Open a file', 'Download material', 'Upload your notes']
 </script>
 
 <template>
@@ -16,15 +16,15 @@ const steps = ['อัปโหลดชีท', 'กรอกรายละเ
 
     <section class="hero">
       <div class="hero__content">
-        <p class="eyebrow">CSIT Student Knowledge Hub</p>
-        <h1>CSIT Sheet</h1>
+        <p class="eyebrow">CSIT Learning Materials</p>
+        <h1>Find what you need to study.</h1>
         <p class="hero__lead">
-          แพลตฟอร์มจัดเก็บชีทสรุปสำหรับนักศึกษา แยก frontend ด้วย Vue.js และ backend ด้วย Node.js + Express อย่างเป็นระบบ
+          CSIT Sheet brings lecture files, revision sheets, and student-made summaries into one polished academic workspace.
         </p>
         <div class="hero__actions">
-          <RouterLink to="/login" class="button button--primary">เริ่มใช้งาน</RouterLink>
-          <button class="button button--ghost" @click="document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })">
-            ดูฟีเจอร์
+          <RouterLink to="/login" class="button button--primary">Start studying</RouterLink>
+          <button class="button button--ghost" type="button" @click="document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })">
+            Explore features
           </button>
         </div>
       </div>
@@ -36,8 +36,8 @@ const steps = ['อัปโหลดชีท', 'กรอกรายละเ
 
     <section id="features" class="section">
       <div class="section-heading">
-        <p class="eyebrow">Features</p>
-        <h2>โครงสร้างชัด ใช้งานง่าย</h2>
+        <p class="eyebrow">Product</p>
+        <h2>A quiet, reliable library for the materials students actually use.</h2>
       </div>
       <div class="feature-grid">
         <article v-for="feature in features" :key="feature.title" class="feature-card">
@@ -50,7 +50,7 @@ const steps = ['อัปโหลดชีท', 'กรอกรายละเ
     <section id="workflow" class="section section--muted">
       <div class="section-heading">
         <p class="eyebrow">Workflow</p>
-        <h2>ขั้นตอนการจัดการชีท</h2>
+        <h2>From search to download in seconds.</h2>
       </div>
       <div class="step-list">
         <div v-for="(step, index) in steps" :key="step" class="step-item">
@@ -62,7 +62,7 @@ const steps = ['อัปโหลดชีท', 'กรอกรายละเ
 
     <footer id="contact" class="footer">
       <strong>CSIT Sheet</strong>
-      <span>frontend: Vue.js / backend: Node.js + Express</span>
+      <span>Learning-material platform for CSIT students.</span>
     </footer>
   </div>
 </template>

@@ -1,4 +1,4 @@
-import { countUsers, findUserById, listUsers } from '../repositories/user.repository.js'
+import { countUsers, listUsers } from '../repositories/user.repository.js'
 import {
   countSheets,
   countSheetsByStatus,
@@ -9,20 +9,28 @@ import {
   countUploadRequestsByStatus,
   createUploadRequest,
   findAllUploadRequests,
-  findCourseById,
   findUploadRequestById,
   findUploadRequestFileById,
+  findDuplicateMatches,
+  publishUploadRequest,
   updateUploadRequestCategory,
   updateUploadRequestStatus
 } from '../repositories/uploadRequest.repository.js'
 import { createNotification } from '../repositories/notification.repository.js'
+import { decodeUploadedFile, validateUploadPayload } from '../services/uploadValidation.service.js'
 
 export function getPendingSheets(_req, res) {
   res.json(findPendingSheets())
 }
 
 export function getUploadRequests(_req, res) {
-  res.json(findAllUploadRequests())
+  res.json(findAllUploadRequests().map((request) => {
+    const duplicateMatches = findDuplicateMatches(request)
+    const duplicateStatus = duplicateMatches.some((match) => match.matchType === 'EXACT_DUPLICATE')
+      ? 'EXACT_DUPLICATE'
+      : duplicateMatches.length ? 'POSSIBLE_DUPLICATE' : request.duplicateStatus
+    return { ...request, duplicateStatus, duplicateMatches }
+  }))
 }
 
 export function getUploadRequestFile(req, res, next) {
@@ -45,7 +53,7 @@ export function getUploadRequestFile(req, res, next) {
     res.setHeader('Content-Type', file.fileType || 'application/octet-stream')
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName || 'download')}`
+      `inline; filename*=UTF-8''${encodeURIComponent(file.fileName || 'preview')}`
     )
     res.send(buffer)
   } catch (error) {
@@ -59,48 +67,41 @@ export function getUsers(_req, res) {
 
 export function createUploadRequestAsAdmin(req, res, next) {
   try {
-    const userId = String(req.body.userId ?? '').trim()
-    const courseId = String(req.body.courseId ?? '').trim()
-    const uploadDate = String(req.body.uploadDate ?? '').trim()
-    const title = String(req.body.title ?? '').trim()
-    const fileName = String(req.body.fileName ?? '').trim()
-
-    if (!userId || !courseId || !uploadDate || !title || !fileName) {
-      const error = new Error('User, category, date, document title, and file are required')
-      error.status = 400
-      throw error
-    }
-
-    if (!findUserById(userId)) {
-      const error = new Error('Selected user does not exist')
-      error.status = 400
-      throw error
-    }
-
-    if (!findCourseById(courseId)) {
-      const error = new Error('Selected category does not exist')
-      error.status = 400
-      throw error
-    }
+    const validated = validateUploadPayload(req.body)
+    const fileData = decodeUploadedFile(req.body.fileData, validated.fileType)
 
     const request = createUploadRequest({
-      userId,
-      title,
-      fileName,
-      fileSize: req.body.fileSize,
-      fileType: req.body.fileType,
-      courseId,
-      uploadDate
+      userId: req.user.id,
+      title: validated.title,
+      fileName: validated.fileName,
+      fileSize: fileData.length,
+      fileType: validated.fileType,
+      fileData,
+      courseId: validated.courseId,
+      documentType: validated.documentType,
+      academicYear: validated.academicYear,
+      semester: validated.semester,
+      instructorId: validated.instructorId,
+      uploadDate: String(req.body.uploadDate ?? '').trim()
     })
 
+    if (request.duplicateStatus !== 'NONE') {
+      const error = new Error('Duplicate review is required before this file can be published')
+      error.status = 409
+      error.expose = true
+      error.details = findDuplicateMatches(request)
+      throw error
+    }
+    const published = publishUploadRequest(request.id, { adminId: req.user.id })
+
     createNotification({
-      userId,
-      title: 'Upload Request Submitted',
-      message: 'An administrator submitted an upload request on your behalf. It is waiting for approval.',
+      userId: req.user.id,
+      title: 'Admin Upload Published',
+      message: 'Your administrator upload was published immediately.',
       uploadRequestId: request.id
     })
 
-    res.status(201).json(request)
+    res.status(201).json(published)
   } catch (error) {
     next(error)
   }
@@ -120,8 +121,8 @@ function assertReviewable(request) {
 }
 
 function assignCategoryIfPresent(id, body) {
-  if (!body.courseId && !body.instructorId && !body.academicYear && !body.documentType) return null
-  if (!body.courseId || !body.instructorId || !body.academicYear || !body.documentType) {
+  if (!body.courseId && !body.instructorId && !body.academicYear && !body.documentType && !body.semester) return null
+  if (!body.courseId || !body.instructorId || !body.academicYear || !body.documentType || !body.semester) {
     const error = new Error('Course, document type, academic year, and instructor are required')
     error.status = 400
     throw error
@@ -131,6 +132,7 @@ function assignCategoryIfPresent(id, body) {
     courseId: body.courseId,
     documentType: body.documentType,
     academicYear: body.academicYear,
+    semester: body.semester,
     instructorId: body.instructorId
   })
   if (!updated) {
@@ -144,23 +146,23 @@ function assignCategoryIfPresent(id, body) {
 export function approveUploadRequest(req, res, next) {
   try {
     const request = findUploadRequestById(req.params.id)
+    if (request?.status === 'COMPLETED') {
+      res.json(request)
+      return
+    }
     assertReviewable(request)
     assignCategoryIfPresent(request.id, req.body)
 
-    const updated = updateUploadRequestStatus({
-      id: request.id,
-      status: 'APPROVED',
-      adminId: req.user.id
-    })
+    const published = publishUploadRequest(request.id, { adminId: req.user.id })
 
     createNotification({
       userId: request.userId,
       title: 'Upload Request Approved',
-      message: 'Your upload request has been approved. You can now continue the upload process.',
+      message: 'Your upload has been approved and is now published for everyone to view and download.',
       uploadRequestId: request.id
     })
 
-    res.json(updated)
+    res.json(published)
   } catch (error) {
     next(error)
   }
@@ -181,7 +183,8 @@ export function rejectUploadRequest(req, res, next) {
       id: request.id,
       status: 'REJECTED',
       adminId: req.user.id,
-      reason
+      reason,
+      rejectionType: req.body.duplicate ? 'DUPLICATE' : 'STANDARD'
     })
 
     createNotification({
@@ -195,6 +198,11 @@ export function rejectUploadRequest(req, res, next) {
   } catch (error) {
     next(error)
   }
+}
+
+export function rejectDuplicateUploadRequest(req, res, next) {
+  req.body = { ...req.body, duplicate: true, reason: String(req.body.reason ?? '').trim() || 'Duplicate material' }
+  rejectUploadRequest(req, res, next)
 }
 
 export function approveSheet(req, res) {

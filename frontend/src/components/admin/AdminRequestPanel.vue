@@ -1,6 +1,6 @@
-<script setup>
+﻿<script setup>
 import { onMounted, ref } from 'vue'
-import { sheetApi } from '@/services/api'
+import { adminApi } from '@/services/admin.service'
 
 const requests = ref([])
 const loading = ref(true)
@@ -11,38 +11,38 @@ async function loadData() {
   loading.value = true
   error.value = ''
   try {
-    requests.value = await sheetApi.adminUploadRequests()
-  } catch (err) {
-    error.value = err.message
+    requests.value = await adminApi.adminUploadRequests()
+  } catch (_err) {
+    error.value = 'Unable to load upload requests.'
   } finally {
     loading.value = false
   }
 }
 
-async function downloadFile(request) {
+async function previewFile(request) {
   error.value = ''
   downloadingId.value = request.id
   try {
-    const blob = await sheetApi.adminDownloadUploadRequestFile(request.id)
+    const blob = await adminApi.adminDownloadUploadRequestFile(request.id)
     const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = request.fileName || 'download'
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
-  } catch (err) {
-    error.value = err.message
+    window.open(url, '_blank', 'noopener,noreferrer')
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000)
+  } catch (_err) {
+    error.value = 'Unable to download the uploaded file.'
   } finally {
     downloadingId.value = ''
   }
 }
 
+async function rejectDuplicate(id) {
+  error.value = ''
+  try { await adminApi.rejectDuplicateUploadRequest(id); await loadData() } catch (err) { error.value = err.message }
+}
+
 async function approve(id) {
   error.value = ''
   try {
-    await sheetApi.approveUploadRequest(id, {})
+    await adminApi.approveUploadRequest(id, {})
     await loadData()
   } catch (err) {
     error.value = err.message
@@ -54,7 +54,7 @@ async function reject(id) {
   if (reason === null) return
   error.value = ''
   try {
-    await sheetApi.rejectUploadRequest(id, reason.trim() || 'Did not meet the review criteria')
+    await adminApi.rejectUploadRequest(id, reason.trim() || 'Did not meet the review criteria')
     await loadData()
   } catch (err) {
     error.value = err.message
@@ -68,15 +68,16 @@ onMounted(loadData)
   <section class="page-panel">
     <div class="panel__header">
       <div>
-        <p class="eyebrow">Admin</p>
-        <h1>Request</h1>
-        <p>Review upload requests waiting for approval.</p>
+        <p class="eyebrow">Admin review</p>
+        <h1>Upload Requests</h1>
+        <p>Review pending submissions and publish the correct Lecture or Sheet record.</p>
       </div>
+      <span v-if="!loading && !error" class="count-pill">{{ requests.length }} requests</span>
     </div>
 
     <div v-if="error" class="form-error">{{ error }}</div>
-    <p v-if="loading">Loading...</p>
-    <p v-else-if="!requests.length">No upload requests yet.</p>
+    <div v-if="loading" class="loading-state skeleton-list"><div class="skeleton-line"></div><div class="skeleton-line"></div></div>
+    <div v-else-if="!requests.length" class="empty-state"><h2>No upload requests</h2><p>New student submissions will appear here.</p></div>
 
     <div v-else class="table-wrap">
       <table class="data-table">
@@ -84,8 +85,9 @@ onMounted(loadData)
           <tr>
             <th>File</th>
             <th>Title</th>
-            <th>Category</th>
-            <th>Date</th>
+            <th>Course</th>
+            <th>Type</th>
+            <th>Year / Instructor</th>
             <th>User</th>
             <th>Status</th>
             <th>Actions</th>
@@ -94,31 +96,27 @@ onMounted(loadData)
         <tbody>
           <tr v-for="request in requests" :key="request.id">
             <td>
-              <button
-                class="button button--small button--ghost"
-                type="button"
-                :disabled="downloadingId === request.id"
-                @click="downloadFile(request)"
-              >
-                {{ downloadingId === request.id ? 'Downloading…' : request.fileName }}
+              <button class="button button--small button--ghost" type="button" :disabled="downloadingId === request.id" @click="previewFile(request)">
+                {{ downloadingId === request.id ? 'Opening...' : request.fileName }}
               </button>
             </td>
             <td>{{ request.title }}</td>
             <td>{{ request.courseName || '-' }}</td>
-            <td>{{ request.uploadDate || request.createdAt }}</td>
+            <td>{{ request.documentType }}</td>
+            <td>{{ request.academicYear || '-' }} / Semester {{ request.semester || '-' }} / {{ request.instructorName || '-' }}</td>
             <td>{{ request.username }}</td>
-            <td>
-              <span class="status" :class="`status--${request.status.toLowerCase()}`">
-                {{ request.status }}
-              </span>
-            </td>
+            <td><span class="status" :class="`status--${request.status.toLowerCase()}`">{{ request.status }}</span></td>
             <td class="table-actions">
               <template v-if="request.status === 'PENDING'">
-                <button class="button button--small button--primary" @click="approve(request.id)">Approve</button>
-                <button class="button button--small button--danger" @click="reject(request.id)">Reject</button>
+                <button class="button button--small button--primary" type="button" @click="approve(request.id)">Approve</button>
+                <button class="button button--small button--danger" type="button" @click="reject(request.id)">Reject</button>
+                <button v-if="request.duplicateStatus !== 'NONE'" class="button button--small button--danger" type="button" @click="rejectDuplicate(request.id)">Reject as Duplicate</button>
               </template>
-              <span v-else>—</span>
+              <span v-else class="material-meta">Reviewed</span>
             </td>
+          </tr>
+          <tr v-for="request in requests.filter((item) => item.duplicateStatus !== 'NONE')" :key="`${request.id}-duplicates`">
+            <td colspan="8"><strong>{{ request.duplicateStatus }}</strong> — {{ request.duplicateMatches.length }} match(es): {{ request.duplicateMatches.map((match) => `${match.title} (${match.source})`).join(', ') }}</td>
           </tr>
         </tbody>
       </table>

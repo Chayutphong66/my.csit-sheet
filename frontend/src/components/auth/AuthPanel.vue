@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 defineProps({
   title: { type: String, required: true },
   subtitle: { type: String, default: '' },
@@ -13,7 +13,7 @@ defineProps({
       <span>CSIT Sheet</span>
     </RouterLink>
     <section class="auth-card">
-      <p class="eyebrow">Naresuan University</p>
+      <p class="eyebrow">Secure workspace</p>
       <h1>{{ title }}</h1>
       <p>{{ subtitle }}</p>
       <p v-if="error" class="form-error">{{ error }}</p>

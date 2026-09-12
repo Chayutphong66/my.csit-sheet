@@ -1,31 +1,38 @@
 import {
   findSheetsByUploaderId,
   findRecommendedSheets,
-  findApprovedSheets
+  findApprovedSheets,
+  findSheetById,
+  incrementSheetDownloadCount
 } from '../repositories/sheet.repository.js'
 import {
-  completeUploadRequest,
   createUploadRequest,
-  failUploadRequest,
   findUploadRequestById,
   findUploadRequestFileById,
   findUploadRequestsByUserId,
+  findContributionSummaryByUserId,
   listCourses,
   listInstructors,
-  updateUploadRequestCategory
+  publishUploadRequest
 } from '../repositories/uploadRequest.repository.js'
+import { findApprovedLectures } from '../repositories/lecture.repository.js'
+import { findSheetFileBySheetId } from '../repositories/sheetFile.repository.js'
 import {
   createNotification,
   findNotificationsByUserId,
   markNotificationRead
 } from '../repositories/notification.repository.js'
+import { decodeUploadedFile, validateUploadPayload } from '../services/uploadValidation.service.js'
 
 function publicSheet(sheet) {
-  const { uploaderId, uploaderEmail, rejectReason, ...safeSheet } = sheet
-  return safeSheet
+  const { uploaderId, uploaderEmail, rejectReason, sourceRequestId, ...safeSheet } = sheet
+  return { ...safeSheet, documentType: 'Sheet', hasFile: Boolean(sheet.hasFile) }
 }
 
-const MAX_FILE_BYTES = 20 * 1024 * 1024
+function publicLectureForCatalog(lecture) {
+  const { uploaderId, sourceRequestId, ...safeLecture } = lecture
+  return { ...safeLecture, documentType: 'Lecture', hasFile: Boolean(lecture.hasFile) }
+}
 
 export function getMySheets(req, res) {
   const mine = findSheetsByUploaderId(req.user.id).map((sheet) => {
@@ -37,6 +44,38 @@ export function getMySheets(req, res) {
 
 export function getAllSheets(_req, res) {
   res.json(findApprovedSheets().map(publicSheet))
+}
+
+// Public download for an approved sheet. Any authenticated user may download it from
+// sheet_files; the private upload-request endpoint is not the public source of truth.
+export function getSheetFile(req, res, next) {
+  try {
+    const sheet = findSheetById(req.params.id)
+    if (!sheet || sheet.status !== 'APPROVED') {
+      const error = new Error('Sheet not found')
+      error.status = 404
+      throw error
+    }
+
+    const file = findSheetFileBySheetId(sheet.id)
+    if (!file || !file.fileData) {
+      const error = new Error('No file is stored for this sheet')
+      error.status = 404
+      throw error
+    }
+
+    incrementSheetDownloadCount(sheet.id)
+
+    const buffer = Buffer.from(file.fileData)
+    res.setHeader('Content-Type', file.mimeType || 'application/octet-stream')
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(file.originalFilename || sheet.title || 'download')}`
+    )
+    res.send(buffer)
+  } catch (error) {
+    next(error)
+  }
 }
 
 export function getRecommendedSheets(req, res) {
@@ -60,55 +99,22 @@ function assertRequestOwner(req, request) {
   }
 }
 
-function validateRequestBody(body) {
-  if (!body?.title?.trim()) {
-    const error = new Error('Document title is required')
-    error.status = 400
-    throw error
-  }
-  if (!body?.fileName?.trim()) {
-    const error = new Error('File name is required')
-    error.status = 400
-    throw error
-  }
-  if (!body?.fileData) {
-    const error = new Error('File content is required')
-    error.status = 400
-    throw error
-  }
-}
-
-function decodeUploadedFile(fileData) {
-  const base64 = String(fileData).replace(/^data:[^;]*;base64,/, '')
-  const buffer = Buffer.from(base64, 'base64')
-  if (buffer.length === 0) {
-    const error = new Error('Uploaded file is empty or invalid')
-    error.status = 400
-    throw error
-  }
-  if (buffer.length > MAX_FILE_BYTES) {
-    const error = new Error('File is too large (max 20 MB)')
-    error.status = 400
-    throw error
-  }
-  return buffer
-}
-
 export function createRequest(req, res, next) {
   try {
-    validateRequestBody(req.body)
-    const fileData = decodeUploadedFile(req.body.fileData)
+    const validated = validateUploadPayload(req.body)
+    const fileData = decodeUploadedFile(req.body.fileData, validated.fileType)
     const request = createUploadRequest({
       userId: req.user.id,
-      title: req.body.title.trim(),
-      fileName: req.body.fileName.trim(),
+      title: validated.title,
+      fileName: validated.fileName,
       fileSize: fileData.length,
-      fileType: req.body.fileType,
+      fileType: validated.fileType,
       fileData,
-      courseId: req.body.courseId,
-      documentType: req.body.documentType,
-      academicYear: req.body.academicYear,
-      instructorId: req.body.instructorId
+      courseId: validated.courseId,
+      documentType: validated.documentType,
+      academicYear: validated.academicYear,
+      semester: validated.semester,
+      instructorId: validated.instructorId
     })
 
     createNotification({
@@ -126,6 +132,10 @@ export function createRequest(req, res, next) {
 
 export function getMyUploadRequests(req, res) {
   res.json(findUploadRequestsByUserId(req.user.id))
+}
+
+export function getMyContributions(req, res) {
+  res.json(findContributionSummaryByUserId(req.user.id))
 }
 
 export function getUploadRequest(req, res, next) {
@@ -162,45 +172,33 @@ export function getUploadRequestFile(req, res, next) {
   }
 }
 
+// Legacy endpoint kept for backward compatibility. Publishing now happens automatically
+// the moment an admin approves a request. If a client still calls this after publication,
+// return the completed request without creating duplicates.
 export function completeRequest(req, res, next) {
   try {
     const request = findUploadRequestById(req.params.id)
     assertRequestOwner(req, request)
 
-    if (request.status !== 'APPROVED') {
-      const error = new Error('This request must be approved before upload can continue')
+    if (request.status === 'PENDING') {
+      const error = new Error('This request is still waiting for administrator approval')
       error.status = 409
       throw error
     }
 
-    const updated = updateUploadRequestCategory({
-      id: request.id,
-      courseId: req.body.courseId,
-      documentType: req.body.documentType,
-      academicYear: req.body.academicYear,
-      instructorId: req.body.instructorId
-    })
-
-    if (!updated || !req.body.documentType || !req.body.academicYear) {
-      const failed = failUploadRequest(request.id)
-      createNotification({
-        userId: req.user.id,
-        title: 'Upload Failed',
-        message: 'Upload could not be completed because the document information was invalid.',
-        uploadRequestId: request.id
-      })
-      res.status(400).json(failed)
+    if (request.status === 'COMPLETED') {
+      res.json(request)
       return
     }
 
-    const completed = completeUploadRequest(request.id)
-    createNotification({
-      userId: req.user.id,
-      title: 'Upload Completed',
-      message: 'Your document has been successfully uploaded.',
-      uploadRequestId: request.id
-    })
-    res.json(completed)
+    if (request.status !== 'APPROVED') {
+      const error = new Error(`This request cannot be published because it is ${request.status.toLowerCase()}`)
+      error.status = 409
+      throw error
+    }
+
+    const published = publishUploadRequest(request.id)
+    res.json(published)
   } catch (error) {
     next(error)
   }
@@ -208,23 +206,22 @@ export function completeRequest(req, res, next) {
 
 export function getCatalog(req, res) {
   const type = String(req.query.type ?? '').toLowerCase()
-  const approved = findRecommendedSheets({ limit: 100, excludeUploaderId: null })
-  const documents = approved.filter((sheet) => {
-    if (!type) return true
-    return type === 'lectures'
-      ? /lecture|lec/i.test(sheet.title)
-      : type === 'sheets'
-        ? !/lecture|lec/i.test(sheet.title)
-        : true
-  })
+  const documents = [
+    ...(['', 'lectures'].includes(type)
+      ? findApprovedLectures().map(publicLectureForCatalog)
+      : []),
+    ...(['', 'sheets'].includes(type)
+      ? findRecommendedSheets({ limit: 100, excludeUploaderId: null }).map(publicSheet)
+      : [])
+  ]
 
-  const courses = documents.reduce((items, sheet) => {
-    const existing = items.find((item) => item.name === sheet.subject)
+  const courses = documents.reduce((items, document) => {
+    const existing = items.find((item) => item.name === document.subject)
     if (existing) {
       existing.count += 1
-      existing.documents.push(publicSheet(sheet))
+      existing.documents.push(document)
     } else {
-      items.push({ name: sheet.subject, count: 1, documents: [publicSheet(sheet)] })
+      items.push({ name: document.subject, count: 1, documents: [document] })
     }
     return items
   }, [])
@@ -236,8 +233,7 @@ export function getMetadata(_req, res) {
   res.json({
     courses: listCourses(),
     instructors: listInstructors(),
-    documentTypes: ['Lecture', 'Sheet', 'Exercise', 'Exam', 'Other'],
-    academicYears: ['2024', '2025', '2026']
+    documentTypes: ['Lecture', 'Sheet']
   })
 }
 

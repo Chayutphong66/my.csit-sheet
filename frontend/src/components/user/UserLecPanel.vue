@@ -1,17 +1,21 @@
-<script setup>
+﻿<script setup>
 import { computed, onMounted, ref } from 'vue'
-import { lectureApi } from '@/services/api'
+import { lectureApi } from '@/services/sheet.service'
 
 const lectures = ref([])
 const loading = ref(true)
 const error = ref('')
 const search = ref('')
+const courseFilter = ref('')
+const yearFilter = ref('')
+const instructorFilter = ref('')
+const downloadingId = ref('')
 
 onMounted(async () => {
   try {
     lectures.value = (await lectureApi.all()) ?? []
-  } catch (err) {
-    error.value = err.message
+  } catch (_err) {
+    error.value = 'Unable to load lecture files.'
   } finally {
     loading.value = false
   }
@@ -19,20 +23,53 @@ onMounted(async () => {
 
 const filteredLectures = computed(() => {
   const term = search.value.trim().toLowerCase()
-  if (!term) return lectures.value
-  return lectures.value.filter(
-    (lecture) =>
-      String(lecture.title).toLowerCase().includes(term) ||
-      String(lecture.subject).toLowerCase().includes(term) ||
-      String(lecture.instructor).toLowerCase().includes(term)
-  )
+  return lectures.value.filter((lecture) => {
+    const matchesKeyword = !term || [lecture.title, lecture.subject, lecture.instructor]
+      .some((value) => String(value ?? '').toLowerCase().includes(term))
+    return matchesKeyword &&
+      (!courseFilter.value || lecture.subject === courseFilter.value) &&
+      (!yearFilter.value || lecture.academicYear === yearFilter.value) &&
+      (!instructorFilter.value || lecture.instructor === instructorFilter.value)
+  })
 })
 
+const courses = computed(() => [...new Set(lectures.value.map((item) => item.subject).filter(Boolean))].sort())
+const years = computed(() => [...new Set(lectures.value.map((item) => item.academicYear).filter(Boolean))].sort().reverse())
+const instructors = computed(() => [...new Set(lectures.value.map((item) => item.instructor).filter(Boolean))].sort())
+const hasFilters = computed(() => Boolean(search.value || courseFilter.value || yearFilter.value || instructorFilter.value))
+
+function clearFilters() {
+  search.value = ''
+  courseFilter.value = ''
+  yearFilter.value = ''
+  instructorFilter.value = ''
+}
+
 function formatDate(value) {
-  if (!value) return '—'
+  if (!value) return '-'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
   return date.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+async function downloadLecture(lecture) {
+  error.value = ''
+  downloadingId.value = lecture.id
+  try {
+    const { blob, fileName } = await lectureApi.downloadFile(lecture.id)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = fileName || lecture.fileName || lecture.title || 'download'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  } catch (_err) {
+    error.value = 'Unable to download this lecture file.'
+  } finally {
+    downloadingId.value = ''
+  }
 }
 </script>
 
@@ -41,132 +78,63 @@ function formatDate(value) {
     <div class="panel__header">
       <div>
         <p class="eyebrow">Learning Resources</p>
-        <h1>Lectures</h1>
-        <p>All lecture materials available in the database, by course and instructor.</p>
+        <h1>Lecture Files</h1>
+        <p>Course files, slides, and classroom documents organized by course, instructor, and year.</p>
       </div>
-      <span v-if="!loading && !error" class="lecture-count">{{ lectures.length }} lectures</span>
+      <span v-if="!loading && !error" class="lecture-count">{{ filteredLectures.length }} of {{ lectures.length }}</span>
     </div>
 
     <div v-if="error" class="form-error">{{ error }}</div>
-    <p v-if="loading">Loading lectures...</p>
+
+    <div class="filter-bar">
+      <label class="search-field">
+        <span class="sr-only">Search lectures</span>
+        <input v-model="search" type="search" placeholder="Search lectures" />
+      </label>
+      <select v-model="courseFilter" aria-label="Filter lectures by course">
+        <option value="">All courses</option>
+        <option v-for="course in courses" :key="course" :value="course">{{ course }}</option>
+      </select>
+      <select v-model="yearFilter" aria-label="Filter lectures by academic year">
+        <option value="">All years</option>
+        <option v-for="year in years" :key="year" :value="year">{{ year }}</option>
+      </select>
+      <select v-model="instructorFilter" aria-label="Filter lectures by instructor">
+        <option value="">All instructors</option>
+        <option v-for="instructor in instructors" :key="instructor" :value="instructor">{{ instructor }}</option>
+      </select>
+      <button class="button button--ghost button--small" type="button" :disabled="!hasFilters" @click="clearFilters">Clear</button>
+    </div>
+
+    <div v-if="loading" class="loading-state skeleton-list">
+      <div class="skeleton-line"></div>
+      <div class="skeleton-line"></div>
+      <div class="skeleton-line"></div>
+    </div>
 
     <template v-else>
-      <label class="search-field">
-        <input v-model="search" type="search" placeholder="Search by title, course, or instructor" />
-      </label>
-
       <div v-if="filteredLectures.length" class="lecture-grid">
         <article v-for="lecture in filteredLectures" :key="lecture.id" class="lecture-card">
           <div class="lecture-card__top">
-            <span class="lecture-card__subject">{{ lecture.subject }}</span>
+            <span class="lecture-card__subject">Lecture</span>
             <span v-if="lecture.academicYear" class="lecture-card__year">{{ lecture.academicYear }}</span>
           </div>
           <h2 class="lecture-card__title">{{ lecture.title }}</h2>
-          <p v-if="lecture.description" class="lecture-card__desc">{{ lecture.description }}</p>
+          <p class="lecture-card__desc">{{ lecture.subject }}<span v-if="lecture.instructor"> - {{ lecture.instructor }}</span></p>
           <div class="lecture-card__footer">
-            <span class="lecture-card__instructor">{{ lecture.instructor || 'Unassigned' }}</span>
-            <span class="lecture-card__date">{{ formatDate(lecture.createdAt) }}</span>
+            <span class="lecture-card__instructor">{{ lecture.uploaderUsername || 'CSIT' }}</span>
+            <span class="lecture-card__date">{{ lecture.downloadCount ?? 0 }} downloads - {{ formatDate(lecture.createdAt) }}</span>
           </div>
+          <button v-if="lecture.hasFile" class="button button--primary button--small lecture-card__download" type="button" :disabled="downloadingId === lecture.id" @click="downloadLecture(lecture)">
+            {{ downloadingId === lecture.id ? 'Downloading...' : 'Download' }}
+          </button>
         </article>
       </div>
 
       <div v-else class="empty-state">
-        <h2>{{ lectures.length ? 'No matching lectures' : 'No lectures yet' }}</h2>
-        <p>{{ lectures.length ? 'Try a different search term.' : 'Lecture materials will appear here.' }}</p>
+        <h2>{{ lectures.length ? 'No matching lectures' : 'No lecture files yet' }}</h2>
+        <p>{{ lectures.length ? 'Try clearing filters or searching another course.' : 'Approved lecture files will appear here.' }}</p>
       </div>
     </template>
   </section>
 </template>
-
-<style scoped>
-.lecture-count {
-  flex-shrink: 0;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: #eef7e4;
-  color: #315d19;
-  font-weight: 800;
-  font-size: 0.85rem;
-}
-.search-field {
-  display: block;
-  margin-bottom: 18px;
-}
-.search-field input {
-  width: 100%;
-  max-width: 420px;
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid #d8ded4;
-  font-size: 0.95rem;
-}
-.lecture-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px;
-}
-.lecture-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 20px;
-  border-radius: 16px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  transition: transform 140ms ease, box-shadow 140ms ease;
-}
-.lecture-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 24px rgba(31, 35, 40, 0.08);
-}
-.lecture-card__top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.lecture-card__subject {
-  display: inline-flex;
-  padding: 4px 10px;
-  border-radius: 8px;
-  background: var(--ink);
-  color: var(--accent);
-  font-weight: 800;
-  font-size: 0.78rem;
-  letter-spacing: 0.02em;
-}
-.lecture-card__year {
-  color: var(--muted);
-  font-weight: 700;
-  font-size: 0.82rem;
-}
-.lecture-card__title {
-  margin: 0;
-  font-size: 1.2rem;
-  line-height: 1.3;
-}
-.lecture-card__desc {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.92rem;
-  line-height: 1.5;
-  flex: 1;
-}
-.lecture-card__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-}
-.lecture-card__instructor {
-  font-weight: 700;
-  font-size: 0.9rem;
-}
-.lecture-card__date {
-  color: var(--muted);
-  font-size: 0.82rem;
-  white-space: nowrap;
-}
-</style>

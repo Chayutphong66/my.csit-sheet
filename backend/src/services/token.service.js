@@ -1,15 +1,46 @@
 import crypto from 'node:crypto'
 import jwt from 'jsonwebtoken'
+import {
+  createRefreshSession,
+  findRefreshSessionByHash,
+  revokeExpiredRefreshSessions,
+  revokeRefreshSessionByHash
+} from '../repositories/refreshToken.repository.js'
 
-const jwtSecret = process.env.JWT_SECRET ?? 'dev-jwt-secret-change-me'
-const refreshTokens = new Map()
+const isProduction = process.env.NODE_ENV === 'production'
+const configuredJwtSecret = process.env.JWT_SECRET?.trim()
+
+if (isProduction && !configuredJwtSecret) {
+  throw new Error('JWT_SECRET must be configured in production')
+}
+
+const jwtSecret = configuredJwtSecret || 'development-only-jwt-secret'
+const accessTokenTtl = process.env.ACCESS_TOKEN_TTL || '15m'
+const configuredRefreshTokenTtlDays = Number(process.env.REFRESH_TOKEN_TTL_DAYS || 7)
+const refreshTokenTtlDays = Number.isFinite(configuredRefreshTokenTtlDays) && configuredRefreshTokenTtlDays > 0
+  ? configuredRefreshTokenTtlDays
+  : 7
+
+function hashToken(token) {
+  return crypto.createHash('sha256').update(token).digest('base64url')
+}
+
+function refreshTokenExpiry() {
+  const date = new Date()
+  date.setDate(date.getDate() + refreshTokenTtlDays)
+  return date.toISOString().slice(0, 19).replace('T', ' ')
+}
+
+function isExpired(expiresAt) {
+  return new Date(`${expiresAt.replace(' ', 'T')}Z`).getTime() <= Date.now()
+}
 
 export function createAccessToken(user) {
   return jwt.sign(
     { sub: user.id, role: user.role },
     jwtSecret,
     {
-      expiresIn: '15m',
+      expiresIn: accessTokenTtl,
       issuer: 'csit-sheet-api',
       audience: 'csit-sheet-client'
     }
@@ -17,17 +48,38 @@ export function createAccessToken(user) {
 }
 
 export function createRefreshToken(user) {
-  const token = crypto.randomUUID()
-  refreshTokens.set(token, user.id)
+  revokeExpiredRefreshSessions()
+
+  const token = crypto.randomBytes(64).toString('base64url')
+  createRefreshSession({
+    id: crypto.randomUUID(),
+    userId: user.id,
+    tokenHash: hashToken(token),
+    expiresAt: refreshTokenExpiry()
+  })
   return token
 }
 
-export function getUserIdByRefreshToken(token) {
-  return refreshTokens.get(token)
+export function consumeRefreshToken(token) {
+  if (!token || typeof token !== 'string') return null
+
+  const tokenHash = hashToken(token)
+  const session = findRefreshSessionByHash(tokenHash)
+  if (!session || session.revokedAt || isExpired(session.expiresAt)) {
+    if (session && !session.revokedAt) revokeRefreshSessionByHash(tokenHash)
+    return null
+  }
+
+  revokeRefreshSessionByHash(tokenHash)
+  return {
+    userId: session.userId,
+    refreshToken: createRefreshToken({ id: session.userId })
+  }
 }
 
 export function revokeRefreshToken(token) {
-  refreshTokens.delete(token)
+  if (!token || typeof token !== 'string') return
+  revokeRefreshSessionByHash(hashToken(token))
 }
 
 export function parseAccessToken(token) {
