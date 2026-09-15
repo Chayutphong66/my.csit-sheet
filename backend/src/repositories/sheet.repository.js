@@ -22,6 +22,8 @@ function toSheet(row) {
     courseName: row.course_name,
     semester: row.semester,
     fileHash: row.file_hash,
+    contentHash: row.content_hash,
+    viewCount: row.view_count,
     instructor: row.instructor_name,
     hasFile: Boolean(row.has_file)
   }
@@ -48,6 +50,8 @@ const sheetSelect = `
     courses.name AS course_name,
     sheets.semester AS semester,
     sheets.file_hash AS file_hash,
+    sheets.content_hash AS content_hash,
+    sheets.view_count AS view_count,
     upload_requests.instructor_name AS instructor_name,
     CASE WHEN sheet_files.id IS NULL THEN 0 ELSE 1 END AS has_file
   FROM sheets

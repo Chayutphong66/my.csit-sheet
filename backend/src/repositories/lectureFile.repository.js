@@ -12,6 +12,7 @@ function toLectureFile(row) {
     mimeType: row.mime_type,
     fileSize: row.file_size,
     fileData: row.file_data,
+    fileAssetId: row.file_asset_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   }
@@ -24,15 +25,16 @@ export function createLectureFile({
   storedFilename = '',
   mimeType = '',
   fileSize = 0,
-  fileData
+  fileData = Buffer.alloc(0),
+  fileAssetId = null
 }) {
   const id = crypto.randomUUID()
   db.prepare(`
     INSERT INTO lecture_files (
       id, lecture_id, uploader_id, original_filename, stored_filename,
-      mime_type, file_size, file_data, created_at, updated_at
+      mime_type, file_size, file_data, file_asset_id, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `).run(
     id,
     lectureId,
@@ -41,13 +43,23 @@ export function createLectureFile({
     storedFilename,
     mimeType,
     Number(fileSize) || 0,
-    fileData
+    fileData,
+    fileAssetId
   )
   return findLectureFileByLectureId(lectureId)
 }
 
 export function findLectureFileByLectureId(lectureId) {
-  return toLectureFile(db.prepare('SELECT * FROM lecture_files WHERE lecture_id = ?').get(lectureId))
+  return toLectureFile(db.prepare(`
+    SELECT lecture_files.id, lecture_files.lecture_id, lecture_files.uploader_id,
+           lecture_files.original_filename, lecture_files.stored_filename,
+           lecture_files.mime_type, lecture_files.file_size, lecture_files.file_asset_id,
+           COALESCE(file_assets.file_data, lecture_files.file_data) AS file_data,
+           lecture_files.created_at, lecture_files.updated_at
+    FROM lecture_files
+    LEFT JOIN file_assets ON file_assets.id = lecture_files.file_asset_id
+    WHERE lecture_files.lecture_id = ?
+  `).get(lectureId))
 }
 
 export function lectureHasFile(lectureId) {

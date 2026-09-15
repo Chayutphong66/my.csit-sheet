@@ -13,7 +13,7 @@ defineProps({
       <span>CSIT Sheet</span>
     </RouterLink>
     <section class="auth-card">
-      <p class="eyebrow">Secure workspace</p>
+      <p class="eyebrow">พื้นที่ใช้งานที่ปลอดภัย</p>
       <h1>{{ title }}</h1>
       <p>{{ subtitle }}</p>
       <p v-if="error" class="form-error">{{ error }}</p>

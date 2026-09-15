@@ -11,6 +11,8 @@
     "dev:watch": "node --watch src/server.js",
     "db:migrate": "node src/data/migrate.js",
     "db:seed": "node src/data/seed.js",
+    "db:cleanup-files": "node src/data/cleanupFileAssets.js",
+    "db:storage-report": "node src/data/storageReport.js",
     "start": "node src/server.js",
     "test": "node --test"
   },

@@ -1,9 +1,9 @@
 import {
   findApprovedLectures,
-  findLectureById,
-  incrementLectureDownloadCount
+  findLectureById
 } from '../repositories/lecture.repository.js'
 import { findLectureFileByLectureId } from '../repositories/lectureFile.repository.js'
+import { recordDocumentInteraction } from '../repositories/communityInteraction.repository.js'
 
 // Strip internal linkage fields before returning a lecture to the client, and expose a
 // simple `hasFile` flag so the UI knows whether to show a download button. Seeded demo
@@ -49,7 +49,11 @@ export function getLectureFile(req, res, next) {
       throw error
     }
 
-    incrementLectureDownloadCount(lecture.id)
+    recordDocumentInteraction({
+      userId: req.user.id,
+      document: { id: lecture.id, documentType: 'Lecture', uploaderId: lecture.uploaderId },
+      interactionType: 'DOWNLOAD'
+    })
 
     const buffer = Buffer.from(file.fileData)
     res.setHeader('Content-Type', file.mimeType || 'application/octet-stream')

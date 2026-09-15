@@ -28,6 +28,9 @@ export function validateLogin(req, _res, next) {
 export function validateRegister(req, _res, next) {
   try {
     const username = requireString(req.body?.username, 'username', { min: 3, max: 50 })
+    const displayName = req.body?.displayName === undefined
+      ? username
+      : requireString(req.body.displayName, 'displayName', { min: 2, max: 80 })
     const email = requireString(req.body?.email, 'email', { max: 255 }).toLowerCase()
     const password = requireString(req.body?.password, 'password', { min: 8, max: 1024 })
 
@@ -38,7 +41,7 @@ export function validateRegister(req, _res, next) {
       throw validationError('email is invalid')
     }
 
-    req.body = { username, email, password }
+    req.body = { username, displayName, email, password }
     next()
   } catch (error) {
     next(error)
@@ -61,6 +64,15 @@ export function validateIdParam(req, _res, next) {
   const id = String(req.params.id ?? '')
   if (!/^[A-Za-z0-9_-]{1,100}$/.test(id)) {
     next(validationError('Invalid resource ID'))
+    return
+  }
+  next()
+}
+
+export function validateUsernameParam(req, _res, next) {
+  const username = String(req.params.username ?? '')
+  if (!/^[A-Za-z0-9_.-]{3,50}$/.test(username)) {
+    next(validationError('Invalid username'))
     return
   }
   next()

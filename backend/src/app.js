@@ -12,6 +12,7 @@ import lectureRoutes from './routes/lecture.routes.js'
 import uploadRequestRoutes from './routes/uploadRequest.routes.js'
 import notificationRoutes from './routes/notification.routes.js'
 import { courseRouter, documentRouter } from './routes/document.routes.js'
+import contributorRoutes from './routes/contributor.routes.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -63,6 +64,7 @@ app.use('/api/upload-requests', uploadRequestRoutes)
 app.use('/api/notifications', notificationRoutes)
 app.use('/api/courses', courseRouter)
 app.use('/api/documents', documentRouter)
+app.use('/api/contributors', contributorRoutes)
 
 app.use('/api', (req, res) => {
   res.status(404).json({ message: `Route not found: ${req.method} ${req.originalUrl}` })

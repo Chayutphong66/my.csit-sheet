@@ -17,20 +17,20 @@ async function submit() {
 </script>
 
 <template>
-  <AuthPanel title="Welcome back" subtitle="Sign in with your CSIT Sheet account to browse, upload, and review learning material." :error="auth.error">
+  <AuthPanel title="ยินดีต้อนรับกลับมา" subtitle="เข้าสู่ระบบเพื่อค้นหา ใช้งาน และแบ่งปันเอกสารกับชุมชน CSIT" :error="auth.error">
     <form class="form" @submit.prevent="submit">
       <label>
-        Email or username
+        อีเมลหรือ username
         <input v-model="form.usernameOrEmail" autocomplete="username" required placeholder="user@csitsheet.app" />
       </label>
       <label>
-        Password
-        <input v-model="form.password" type="password" autocomplete="current-password" required placeholder="Your password" />
+        รหัสผ่าน
+        <input v-model="form.password" type="password" autocomplete="current-password" required placeholder="กรอกรหัสผ่าน" />
       </label>
       <button class="button button--primary button--wide" :disabled="auth.loading">
-        {{ auth.loading ? 'Signing in...' : 'Sign in' }}
+        {{ auth.loading ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ' }}
       </button>
-      <RouterLink to="/register" class="text-link">Create an account</RouterLink>
+      <RouterLink to="/register" class="text-link">สร้างบัญชีใหม่</RouterLink>
     </form>
   </AuthPanel>
 </template>

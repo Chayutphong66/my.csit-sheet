@@ -1,15 +1,6 @@
-﻿<template>
-  <section class="page-panel">
-    <div class="panel__header">
-      <div>
-        <p class="eyebrow">Academic structure</p>
-        <h1>Subjects</h1>
-        <p>Course and instructor data currently comes from the seeded metadata catalog.</p>
-      </div>
-    </div>
-    <div class="empty-state">
-      <h2>รอเพิ่ม</h2>
-      <p>- เพิ่ม ลบ แก้ไข รายวิชาหน้านี้ </p>
-    </div>
-  </section>
-</template>
+<script setup>
+import { onMounted, ref } from 'vue'; import { sheetApi } from '@/services/sheet.service'
+const metadata = ref({ courses: [], instructors: [] }); const loading = ref(true); const error = ref('')
+onMounted(async () => { try { metadata.value = await sheetApi.metadata() } catch { error.value = 'โหลดโครงสร้างรายวิชาไม่สำเร็จ' } finally { loading.value = false } })
+</script>
+<template><section class="page-panel"><div class="panel__header"><div><p class="eyebrow">Academic structure</p><h1>รายวิชาและผู้สอน</h1><p>ข้อมูลกลางที่ใช้ร่วมกันใน Upload, Search และ Review Workspace</p></div></div><div v-if="loading" class="loading-state">กำลังโหลด…</div><p v-else-if="error" class="form-error">{{ error }}</p><div v-else class="subject-layout"><section><div class="section-heading"><h2>รายวิชา</h2><span class="count-pill">{{ metadata.courses.length }}</span></div><div class="catalog-grid"><article v-for="course in metadata.courses" :key="course.id" class="material-card"><span class="material-type">{{ course.code }}</span><h3>{{ course.name }}</h3><p>{{ course.description || 'ยังไม่มีคำอธิบายรายวิชา' }}</p></article></div></section><aside><div class="section-heading"><h2>ผู้สอน</h2><span class="count-pill">{{ metadata.instructors.length }}</span></div><ul class="instructor-list"><li v-for="instructor in metadata.instructors" :key="instructor.id">{{ instructor.name }}</li></ul></aside></div><p class="info-note">การแก้ไขข้อมูลโครงสร้างยังใช้ seed/migration เดิม หน้านี้จึงเป็นมุมมองแบบอ่านอย่างเดียวเพื่อไม่เพิ่ม CRUD ที่ไม่มี contract รองรับ</p></section></template>

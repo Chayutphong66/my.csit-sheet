@@ -15,9 +15,11 @@ function toLecture(row) {
     courseName: row.course_name,
     semester: row.semester,
     fileHash: row.file_hash,
+    contentHash: row.content_hash,
     status: row.status,
     uploaderId: row.uploader_id,
     downloadCount: row.download_count,
+    viewCount: row.view_count,
     fileName: row.file_name,
     sourceRequestId: row.source_request_id,
     uploaderUsername: row.uploader_username,
@@ -40,9 +42,11 @@ const lectureSelect = `
     courses.name AS course_name,
     lectures.semester,
     lectures.file_hash,
+    lectures.content_hash,
     lectures.status,
     lectures.uploader_id,
     lectures.download_count,
+    lectures.view_count,
     COALESCE(lecture_files.original_filename, lectures.file_name) AS file_name,
     lectures.source_request_id,
     lectures.created_at,
@@ -79,6 +83,7 @@ export function createLecture({
   courseId = '',
   semester = '',
   fileHash = '',
+  contentHash = '',
   uploaderId = '',
   fileName = '',
   sourceRequestId = null
@@ -88,11 +93,11 @@ export function createLecture({
     INSERT INTO lectures (
       id, title, subject, instructor, description, academic_year,
       status, uploader_id, download_count, file_name, source_request_id, course_id,
-      semester, normalized_title, file_hash, created_at, updated_at
+      semester, normalized_title, file_hash, content_hash, view_count, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, 'APPROVED', ?, 0, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    VALUES (?, ?, ?, ?, ?, ?, 'APPROVED', ?, 0, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `).run(id, title, subject, instructor, description, academicYear, uploaderId, fileName, sourceRequestId,
-    courseId, semester, String(title).trim().toLowerCase().replace(/\s+/g, ' '), fileHash)
+    courseId, semester, String(title).trim().toLowerCase().replace(/\s+/g, ' '), fileHash, contentHash)
   return findLectureById(id)
 }
 
@@ -102,4 +107,8 @@ export function incrementLectureDownloadCount(id) {
 
 export function countLectures() {
   return db.prepare('SELECT COUNT(*) AS count FROM lectures').get().count
+}
+
+export function countLecturesByStatus(status) {
+  return db.prepare('SELECT COUNT(*) AS count FROM lectures WHERE status = ?').get(status).count
 }

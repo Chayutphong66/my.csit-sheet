@@ -8,13 +8,21 @@ import {
 } from '../repositories/document.repository.js'
 import { findLectureFileByLectureId } from '../repositories/lectureFile.repository.js'
 import { findSheetFileBySheetId } from '../repositories/sheetFile.repository.js'
-import { incrementLectureDownloadCount } from '../repositories/lecture.repository.js'
-import { incrementSheetDownloadCount } from '../repositories/sheet.repository.js'
+import {
+  findHelpfulState,
+  recordDocumentInteraction,
+  setDocumentHelpful
+} from '../repositories/communityInteraction.repository.js'
 
 function notFound(message = 'Document not found') {
   const error = new Error(message)
   error.status = 404
   return error
+}
+
+function publicDocument(document) {
+  const { uploaderId, ...safeDocument } = document
+  return safeDocument
 }
 
 function requestedType(req) {
@@ -44,7 +52,7 @@ export function getCourseYear(req, res, next) {
   try { documentType = requestedType(req) } catch (error) { return next(error) }
   const course = findCourseSummary(req.params.id, documentType)
   if (!course) return next(notFound('Course not found'))
-  const documents = listCourseYearDocuments(course.id, req.params.year, documentType)
+  const documents = listCourseYearDocuments(course.id, req.params.year, documentType, req.user.id).map(publicDocument)
   const semesters = documents.reduce((groups, document) => {
     let group = groups.find((item) => item.semester === document.semester)
     if (!group) {
@@ -61,14 +69,19 @@ export function getCourseYear(req, res, next) {
 export function search(req, res, next) {
   try {
     const documentType = requestedType(req)
-    res.json({ query: String(req.query.q ?? '').trim(), documentType: documentType || null, documents: searchDocuments(req.query.q, documentType) })
+    res.json({ query: String(req.query.q ?? '').trim(), documentType: documentType || null, documents: searchDocuments(req.query.q, documentType, req.user.id).map(publicDocument) })
   } catch (error) { next(error) }
 }
 
 export function getDocument(req, res, next) {
-  const document = findPublicDocument(req.params.type, req.params.id)
+  const document = findPublicDocument(req.params.type, req.params.id, req.user.id)
   if (!document) return next(notFound())
-  res.json(document)
+  const helpful = findHelpfulState({
+    userId: req.user.id,
+    documentType: document.documentType,
+    documentId: document.id
+  })
+  res.json({ ...publicDocument(document), ...helpful })
 }
 
 function sendFile(req, res, next, disposition) {
@@ -79,10 +92,11 @@ function sendFile(req, res, next, disposition) {
       ? findLectureFileByLectureId(document.id)
       : findSheetFileBySheetId(document.id)
     if (!file?.fileData) throw notFound()
-    if (disposition === 'attachment') {
-      if (document.documentType === 'Lecture') incrementLectureDownloadCount(document.id)
-      else incrementSheetDownloadCount(document.id)
-    }
+    recordDocumentInteraction({
+      userId: req.user.id,
+      document,
+      interactionType: disposition === 'attachment' ? 'DOWNLOAD' : 'VIEW'
+    })
     res.setHeader('Content-Type', file.mimeType || 'application/octet-stream')
     res.setHeader('X-Content-Type-Options', 'nosniff')
     res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${encodeURIComponent(file.originalFilename || 'document')}`)
@@ -98,4 +112,20 @@ export function viewDocument(req, res, next) {
 
 export function downloadDocument(req, res, next) {
   sendFile(req, res, next, 'attachment')
+}
+
+export function updateHelpful(req, res, next) {
+  try {
+    if (typeof req.body?.helpful !== 'boolean') {
+      const error = new Error('helpful must be a boolean')
+      error.status = 400
+      error.expose = true
+      throw error
+    }
+    const document = findPublicDocument(req.params.type, req.params.id)
+    if (!document) throw notFound()
+    res.json(setDocumentHelpful({ userId: req.user.id, document, helpful: req.body.helpful }))
+  } catch (error) {
+    next(error)
+  }
 }

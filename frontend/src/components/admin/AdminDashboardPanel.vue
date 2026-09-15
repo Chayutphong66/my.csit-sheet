@@ -1,49 +1,8 @@
-﻿<script setup>
-import { computed, onMounted, ref } from 'vue'
-import { adminApi } from '@/services/admin.service'
-
-const stats = ref(null)
-const error = ref('')
-const loading = ref(true)
-
-onMounted(async () => {
-  try {
-    stats.value = await adminApi.stats()
-  } catch (_err) {
-    error.value = 'Unable to load admin dashboard.'
-  } finally {
-    loading.value = false
-  }
-})
-
-const statCards = computed(() => stats.value ? [
-  { label: 'Users', value: stats.value.totalUsers, hint: 'Registered accounts' },
-  { label: 'Sheets', value: stats.value.totalSheets, hint: 'Sheet catalog records' },
-  { label: 'Pending sheets', value: stats.value.pendingCount, hint: 'Awaiting review' },
-  { label: 'Approved sheets', value: stats.value.approvedCount, hint: 'Visible to users' },
-  { label: 'Pending requests', value: stats.value.pendingRequests, hint: 'Upload queue' },
-  { label: 'Rejected requests', value: stats.value.rejectedRequests, hint: 'Declined uploads' }
-] : [])
+<script setup>
+import { computed, onMounted, ref } from 'vue'; import { adminApi } from '@/services/admin.service'
+const stats = ref(null); const error = ref(''); const loading = ref(true)
+async function load() { loading.value = true; error.value = ''; try { stats.value = await adminApi.stats() } catch { error.value = 'โหลดภาพรวมผู้ดูแลไม่สำเร็จ' } finally { loading.value = false } }
+onMounted(load)
+const cards = computed(() => stats.value ? [{ label: 'ต้องตรวจสอบ', value: stats.value.pendingRequests, hint: 'รายการรอการตัดสินใจ', tone: 'yellow' }, { label: 'เผยแพร่แล้ว', value: stats.value.approvedDocuments ?? stats.value.approvedCount, hint: 'เอกสารในคลังสาธารณะ', tone: 'green' }, { label: 'ปฏิเสธแล้ว', value: stats.value.rejectedRequests, hint: 'คำขอที่ตรวจเสร็จ', tone: 'peach' }, { label: 'สมาชิก', value: stats.value.totalUsers, hint: 'บัญชีในระบบ', tone: 'lavender' }] : [])
 </script>
-
-<template>
-  <section class="page-panel">
-    <div class="panel__header">
-      <div>
-        <p class="eyebrow">Admin overview</p>
-        <h1>Dashboard</h1>
-        <p>Monitor platform activity, moderation load, and publication status.</p>
-      </div>
-    </div>
-
-    <div v-if="loading" class="loading-state skeleton-list"><div class="skeleton-line"></div><div class="skeleton-line"></div></div>
-    <p v-else-if="error" class="form-error">{{ error }}</p>
-    <div v-else class="stats-grid">
-      <article v-for="card in statCards" :key="card.label" class="stat-card">
-        <span>{{ card.label }}</span>
-        <strong>{{ card.value ?? 0 }}</strong>
-        <p class="material-meta">{{ card.hint }}</p>
-      </article>
-    </div>
-  </section>
-</template>
+<template><section class="page-panel"><header class="admin-hero"><div><p class="eyebrow">Admin workspace</p><h1>สิ่งที่ต้องดำเนินการ</h1><p>เริ่มจากคิวตรวจสอบ แล้วค่อยติดตามสุขภาพของคลังเอกสาร</p></div><RouterLink class="button button--primary" to="/admin/request">เปิดคิวตรวจสอบ →</RouterLink></header><div v-if="loading" class="loading-state skeleton-list"><div class="skeleton-line"></div><div class="skeleton-line"></div></div><div v-else-if="error" class="error-state"><p>{{ error }}</p><button class="button button--ghost" @click="load">ลองอีกครั้ง</button></div><template v-else><div class="stats-grid"><article v-for="card in cards" :key="card.label" class="stat-card" :class="`stat-card--${card.tone}`"><span>{{ card.label }}</span><strong>{{ card.value || 0 }}</strong><p>{{ card.hint }}</p></article></div><section class="action-board"><div><span class="action-board__index">01</span><div><h2>ตรวจเอกสารใหม่</h2><p>Preview ไฟล์ ตรวจ metadata และเปรียบเทียบรายการซ้ำก่อนอนุมัติ</p></div></div><RouterLink class="text-link" to="/admin/request">{{ stats.pendingRequests }} รายการรอตรวจ →</RouterLink></section><section class="admin-guidance"><p class="eyebrow">Quality over quantity</p><h2>หลักการตรวจที่ใช้ร่วมกัน</h2><div class="guidance-grid"><article><strong>คุณภาพ</strong><p>ชื่อและเนื้อหาตรงกับรายวิชา ใช้งานได้จริง</p></article><article><strong>ความถูกต้อง</strong><p>ปี ภาคเรียน ประเภท และผู้สอนสอดคล้องกับไฟล์</p></article><article><strong>ไม่ซ้ำ</strong><p>พิจารณา Exact, Content และ Possible Duplicate ตามหลักฐาน</p></article></div></section></template></section></template>

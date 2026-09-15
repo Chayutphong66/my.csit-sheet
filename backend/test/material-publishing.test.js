@@ -13,6 +13,7 @@ mkdirSync(path.dirname(process.env.DATABASE_PATH), { recursive: true })
 const { default: app } = await import('../src/app.js')
 const { db } = await import('../src/data/database.js')
 const { hashPassword } = await import('../src/services/password.service.js')
+const { countFileAssets, deleteOrphanFileAssets } = await import('../src/repositories/fileAsset.repository.js')
 
 const insertActor = db.prepare(`
   INSERT OR IGNORE INTO users (id, username, email, password, role, avatar_url, is_verified, provider)
@@ -695,4 +696,191 @@ test('health check is minimal and does not require authentication', async () => 
   const result = await api('/health')
   assert.equal(result.response.status, 200)
   assert.deepEqual(result.data, { status: 'ok' })
+})
+
+test('contributor impact, Helpful, and score use unique non-owner interactions', async (context) => {
+  const adminToken = await login('admin1', 'Admin@1234')
+  const user1Token = await login('user1')
+  const user2Token = await login('user2')
+  const before = (await api('/upload-requests/contributions', { token: user1Token })).data
+  const title = 'Community Impact Lecture Unique 001'
+  await uploadAndApprove({
+    userToken: user1Token,
+    adminToken,
+    title,
+    documentType: 'Lecture',
+    contents: '%PDF-community-impact-unique'
+  })
+  const found = (await api(`/documents/search?q=${encodeURIComponent(title)}`, { token: user2Token })).data.documents[0]
+  assert.ok(found)
+  assert.equal((await api(`/documents/lecture/${found.id}/helpful`, { method: 'PUT', body: { helpful: true } })).response.status, 401)
+
+  for (let count = 0; count < 2; count += 1) {
+    assert.equal((await download(`/documents/lecture/${found.id}/view`, user2Token)).response.status, 200)
+    assert.equal((await download(`/documents/lecture/${found.id}/download`, user2Token)).response.status, 200)
+  }
+  assert.equal((await download(`/documents/lecture/${found.id}/download`, user1Token)).response.status, 200)
+
+  const helpfulOnce = await api(`/documents/lecture/${found.id}/helpful`, { method: 'PUT', token: user2Token, body: { helpful: true } })
+  const helpfulAgain = await api(`/documents/lecture/${found.id}/helpful`, { method: 'PUT', token: user2Token, body: { helpful: true } })
+  assert.deepEqual(helpfulOnce.data, { helpful: true, helpfulCount: 1 })
+  assert.deepEqual(helpfulAgain.data, helpfulOnce.data)
+  const selfHelpful = await api(`/documents/lecture/${found.id}/helpful`, { method: 'PUT', token: user1Token, body: { helpful: true } })
+  assert.equal(selfHelpful.response.status, 403)
+
+  const detail = await api(`/documents/lecture/${found.id}`, { token: user2Token })
+  assert.equal(detail.data.viewCount, 1)
+  assert.equal(detail.data.downloadCount, 1)
+  assert.equal(detail.data.helpfulCount, 1)
+  assert.equal(detail.data.helpfulByMe, true)
+
+  const after = (await api('/upload-requests/contributions', { token: user1Token })).data
+  assert.equal(after.total, before.total + 1)
+  assert.equal(after.published, before.published + 1)
+  assert.equal(after.totalViews, before.totalViews + 1)
+  assert.equal(after.totalDownloads, before.totalDownloads + 1)
+  assert.equal(after.helpful, before.helpful + 1)
+  assert.equal(after.contributionScore, before.contributionScore + 27)
+  assert.ok(after.badges.includes('First Contribution'))
+  assert.ok(after.recent.some((item) => item.title === title && item.views === 1 && item.downloads === 1 && item.helpful === 1))
+  context.diagnostic(`contribution verification ${JSON.stringify({ beforeScore: before.contributionScore, afterScore: after.contributionScore, viewDelta: 1, downloadDelta: 1, helpfulDelta: 1 })}`)
+
+  const removed = await api(`/documents/lecture/${found.id}/helpful`, { method: 'PUT', token: user2Token, body: { helpful: false } })
+  assert.deepEqual(removed.data, { helpful: false, helpfulCount: 0 })
+})
+
+test('content fingerprint detects same extractable PDF text with different binaries', async () => {
+  const user1Token = await login('user1')
+  const user2Token = await login('user2')
+  const visibleText = 'Software Engineering Lecture One Normalized Visible Content For Students'
+  const first = await api('/upload-requests', {
+    method: 'POST', token: user1Token,
+    body: uploadPayload({ title: 'Fingerprint Source', fileName: 'fingerprint-a.pdf', contents: `%PDF-1.4\n1 0 obj\nBT (${visibleText}) Tj ET\n%%EOF`, documentType: 'Lecture' })
+  })
+  const second = await api('/upload-requests', {
+    method: 'POST', token: user2Token,
+    body: uploadPayload({ title: 'Renamed Fingerprint Copy', fileName: 'fingerprint-b.pdf', contents: `%PDF-1.7\n% different metadata\n9 0 obj\nBT (${visibleText}) Tj ET\n%%EOF`, documentType: 'Lecture' })
+  })
+  assert.notEqual(first.data.fileHash, second.data.fileHash)
+  assert.equal(first.data.contentHash, second.data.contentHash)
+  assert.equal(second.data.duplicateStatus, 'CONTENT_DUPLICATE')
+})
+
+test('exact duplicate reuses one FileAsset through rejection and cannot earn score', async (context) => {
+  const adminToken = await login('admin1', 'Admin@1234')
+  const user1Token = await login('user1')
+  const user2Token = await login('user2')
+  const contents = '%PDF-exact-storage-dedup-authoritative-bytes'
+  const beforeAssets = countFileAssets()
+  const first = await api('/upload-requests', { method: 'POST', token: user1Token,
+    body: uploadPayload({ title: 'Stored Once Source', fileName: 'stored-once-a.pdf', contents, documentType: 'Sheet' }) })
+  assert.equal(countFileAssets(), beforeAssets + 1)
+  const afterUnique = countFileAssets()
+  await approve(first.data.id, adminToken, 'Sheet')
+  const scoreBeforeDuplicate = (await api('/upload-requests/contributions', { token: user2Token })).data.contributionScore
+  const second = await api('/upload-requests', { method: 'POST', token: user2Token,
+    body: uploadPayload({ title: 'Completely Renamed Copy', fileName: 'stored-once-b.pdf', contents, documentType: 'Sheet' }) })
+  assert.equal(second.data.duplicateStatus, 'EXACT_DUPLICATE')
+  assert.equal(countFileAssets(), beforeAssets + 1)
+  const afterDuplicate = countFileAssets()
+  assert.equal(db.prepare('SELECT file_asset_id FROM upload_requests WHERE id = ?').get(first.data.id).file_asset_id,
+    db.prepare('SELECT file_asset_id FROM upload_requests WHERE id = ?').get(second.data.id).file_asset_id)
+  const rejected = await api(`/admin/upload-requests/${second.data.id}/reject-duplicate`, { method: 'PATCH', token: adminToken, body: {} })
+  assert.equal(rejected.data.rejectionType, 'DUPLICATE')
+  assert.equal(countFileAssets(), beforeAssets + 1)
+  assert.equal((await api('/upload-requests/contributions', { token: user2Token })).data.contributionScore, scoreBeforeDuplicate)
+  context.diagnostic(`storage verification ${JSON.stringify({ beforeUpload: beforeAssets, afterUnique, afterExactDuplicate: afterDuplicate, afterRejectDuplicate: countFileAssets() })}`)
+})
+
+test('orphan cleanup preserves a shared referenced asset and removes only unreferenced assets', () => {
+  const published = db.prepare(`
+    SELECT upload_requests.id AS request_id, upload_requests.file_asset_id
+    FROM upload_requests JOIN lecture_files ON lecture_files.file_asset_id = upload_requests.file_asset_id
+    WHERE upload_requests.status = 'COMPLETED' AND upload_requests.file_asset_id IS NOT NULL LIMIT 1
+  `).get()
+  assert.ok(published)
+  assert.throws(
+    () => db.prepare('DELETE FROM file_assets WHERE id = ?').run(published.file_asset_id),
+    /file asset is still referenced/
+  )
+  db.prepare('UPDATE upload_requests SET file_asset_id = NULL WHERE id = ?').run(published.request_id)
+  deleteOrphanFileAssets()
+  assert.ok(db.prepare('SELECT 1 FROM file_assets WHERE id = ?').get(published.file_asset_id))
+
+  db.prepare(`
+    INSERT INTO file_assets (id, binary_hash, original_filename, mime_type, file_size, file_data)
+    VALUES ('orphan-test-asset', ?, 'orphan.pdf', 'application/pdf', 6, ?)
+  `).run('f'.repeat(64), Buffer.from('%PDF-'))
+  const before = countFileAssets()
+  assert.equal(deleteOrphanFileAssets(), 1)
+  assert.equal(countFileAssets(), before - 1)
+})
+
+test('3-actor public contributor discovery is partial, clickable by username, and privacy-safe', async () => {
+  const adminToken = await login('admin1', 'Admin@1234')
+  const user1Token = await login('user1')
+  const user2Token = await login('user2')
+  db.prepare('UPDATE users SET display_name = ? WHERE username = ?').run('สมชาย นักแบ่งปันความรู้', 'user1')
+
+  const title = 'Public Profile Safe Lecture 909'
+  const published = await uploadAndApprove({
+    userToken: user1Token,
+    adminToken,
+    title,
+    documentType: 'Lecture',
+    contents: '%PDF-public-profile-safe-lecture-909'
+  })
+  assert.ok(published)
+
+  const anonymous = await api('/contributors/user1')
+  assert.equal(anonymous.response.status, 401)
+
+  for (const query of ['USER1', 'นักแบ่งปัน']) {
+    const search = await api(`/contributors/search?q=${encodeURIComponent(query)}`, { token: user2Token })
+    assert.equal(search.response.status, 200)
+    const result = search.data.contributors.find((item) => item.username === 'user1')
+    assert.ok(result)
+    assert.equal(result.displayName, 'สมชาย นักแบ่งปันความรู้')
+    assert.equal('email' in result, false)
+    assert.equal('id' in result, false)
+    assert.equal('password' in result, false)
+    assert.equal('recent' in result, false)
+  }
+
+  const profile = await api('/contributors/UsEr1', { token: user2Token })
+  assert.equal(profile.response.status, 200)
+  assert.equal(profile.data.username, 'user1')
+  assert.equal(profile.data.displayName, 'สมชาย นักแบ่งปันความรู้')
+  assert.ok(profile.data.documents.some((document) => document.title === title))
+  assert.ok(profile.data.documents.every((document) => document.uploaderUsername === 'user1'))
+  for (const forbidden of ['id', 'email', 'password', 'role', 'provider', 'isVerified', 'pending', 'rejected']) {
+    assert.equal(forbidden in profile.data, false, `public profile exposed ${forbidden}`)
+  }
+  assert.ok(profile.data.documents.every((document) => !('uploaderId' in document)))
+  assert.ok(profile.data.documents.every((document) => !('fileHash' in document) && !('contentHash' in document)))
+
+  const documentSearch = await api(`/documents/search?q=${encodeURIComponent(title)}`, { token: user2Token })
+  const document = documentSearch.data.documents.find((item) => item.title === title)
+  assert.equal(document.uploaderUsername, 'user1')
+  assert.equal(document.uploaderDisplayName, 'สมชาย นักแบ่งปันความรู้')
+  assert.equal(document.uploaderAvatarUrl, '')
+
+  db.prepare(`
+    INSERT INTO users (id, username, display_name, email, password, role, avatar_url, is_verified, provider)
+    VALUES (?, ?, ?, ?, ?, 'USER', '', 1, 'local')
+  `).run('quiet-user-id', 'quietuser', 'ผู้ใช้ใหม่', 'quiet@example.test', hashPassword('User@1234'))
+  const emptyProfile = await api('/contributors/quietuser', { token: user2Token })
+  assert.equal(emptyProfile.response.status, 200)
+  assert.equal(emptyProfile.data.publishedCount, 0)
+  assert.deepEqual(emptyProfile.data.documents, [])
+  const adminSearch = await api('/contributors/search?q=admin1', { token: user2Token })
+  assert.equal(adminSearch.data.contributors.some((item) => item.username === 'admin1'), false)
+})
+
+test('display-name migration is idempotent and backfills a usable public identity', () => {
+  const columns = db.prepare('PRAGMA table_info(users)').all().map((column) => column.name)
+  assert.ok(columns.includes('display_name'))
+  const seededFallback = db.prepare('SELECT username, display_name FROM users WHERE username = ?').get('student01')
+  assert.ok(seededFallback.display_name || seededFallback.username)
+  assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), [])
 })

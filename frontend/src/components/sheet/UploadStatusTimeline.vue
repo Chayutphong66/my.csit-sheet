@@ -7,13 +7,13 @@ const props = defineProps({
 // it is immediately published (APPROVED) and visible to everyone. There is no separate
 // user "complete" step anymore.
 const normalSteps = [
-  { key: 'PENDING', label: 'Request Sent', hint: 'Waiting for admin' },
-  { key: 'APPROVED', label: 'Approved & Published', hint: 'Visible to everyone' }
+  { key: 'PENDING', label: 'ส่งคำขอแล้ว', hint: 'กำลังรอผู้ดูแลตรวจสอบ' },
+  { key: 'APPROVED', label: 'อนุมัติและเผยแพร่แล้ว', hint: 'ผู้ใช้งานค้นหาได้' }
 ]
 
 const rejectedSteps = [
-  { key: 'PENDING', label: 'Request Sent', hint: 'Waiting for admin' },
-  { key: 'REJECTED', label: 'Rejected', hint: 'Admin reviewed the request' }
+  { key: 'PENDING', label: 'ส่งคำขอแล้ว', hint: 'ผู้ดูแลได้รับรายการ' },
+  { key: 'REJECTED', label: 'ปฏิเสธแล้ว', hint: 'อ่านเหตุผลและแก้ไขก่อนส่งใหม่' }
 ]
 
 const rank = { PENDING: 0, APPROVED: 1 }

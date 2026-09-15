@@ -9,7 +9,7 @@ const DashboardShellStub = {
 }
 
 describe('user dashboard navigation', () => {
-  it('uses exactly Home, Lectures, Sheets, Upload, and Profile', () => {
+  it('uses exactly the five Thai-first primary destinations', () => {
     const wrapper = mount(UserDashboardView, {
       global: {
         stubs: {
@@ -21,11 +21,11 @@ describe('user dashboard navigation', () => {
 
     const navItems = wrapper.findComponent(DashboardShellStub).props('navItems')
     expect(navItems).toEqual([
-      { label: 'Home', to: '/dashboard/home' },
-      { label: 'Lectures', to: '/dashboard/lec' },
-      { label: 'Sheets', to: '/dashboard/sheet' },
-      { label: 'Upload', to: '/dashboard/upload' },
-      { label: 'Profile', to: '/dashboard/profile' }
+      { label: 'หน้าหลัก', to: '/dashboard/home' },
+      { label: 'เอกสารการสอน', to: '/dashboard/lec' },
+      { label: 'ชีทสรุป', to: '/dashboard/sheet' },
+      { label: 'อัปโหลด', to: '/dashboard/upload' },
+      { label: 'โปรไฟล์', to: '/dashboard/profile' }
     ])
   })
 })

@@ -1,159 +1,18 @@
-﻿<script setup>
+<script setup>
 import { computed, onMounted, ref } from 'vue'
 import UploadStatusTimeline from '@/components/sheet/UploadStatusTimeline.vue'
+import StatusBadge from '@/components/shared/StatusBadge.vue'
 import { uploadApi } from '@/services/upload.service'
-
-const requests = ref([])
-const loading = ref(true)
-const error = ref('')
+import { documentTypeLabel, duplicateLabel, statusLabel } from '@/services/terminology'
 const props = defineProps({ embedded: { type: Boolean, default: false }, selectedId: { type: String, default: '' } })
-const openId = ref(props.selectedId)
-const downloadingId = ref('')
-const activeStatus = ref('ALL')
-
-const statuses = ['ALL', 'PENDING', 'COMPLETED', 'REJECTED']
+const requests = ref([]); const loading = ref(true); const error = ref(''); const openId = ref(props.selectedId); const downloadingId = ref(''); const activeStatus = ref('ALL'); const activeType = ref('ALL')
+const statuses = ['ALL', 'PENDING', 'COMPLETED', 'REJECTED']; const types = ['ALL', 'Lecture', 'Sheet']
 const selectedRequest = computed(() => requests.value.find((request) => request.id === openId.value))
-const filteredRequests = computed(() => activeStatus.value === 'ALL'
-  ? requests.value
-  : requests.value.filter((request) => activeStatus.value === 'REJECTED'
-    ? ['REJECTED', 'FAILED'].includes(String(request.status).toUpperCase())
-    : String(request.status).toUpperCase() === activeStatus.value))
-
-onMounted(async () => {
-  try {
-    requests.value = (await uploadApi.uploadRequests()) ?? []
-  } catch (_err) {
-    error.value = 'Unable to load upload requests.'
-  } finally {
-    loading.value = false
-  }
-})
-
-function formatDate(value) {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return String(value)
-  return date.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
-}
-
-function formatSize(bytes) {
-  const value = Number(bytes) || 0
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function nextAction(request) {
-  const map = {
-    PENDING: 'Waiting for administrator approval.',
-    APPROVED: 'Approved and published for everyone.',
-    REJECTED: 'This request was rejected. Review the reason before resubmitting.',
-    COMPLETED: 'Published. Other users can now find and download this material.',
-    FAILED: 'Upload failed. Please submit a new request.'
-  }
-  return map[request.status] ?? 'Track this request from here.'
-}
-
-function displayStatus(status) {
-  if (status === 'COMPLETED') return 'Published'
-  if (status === 'FAILED') return 'Rejected'
-  return status.charAt(0) + status.slice(1).toLowerCase()
-}
-
-async function downloadFile(request) {
-  error.value = ''
-  downloadingId.value = request.id
-  try {
-    const publishedId = request.documentType === 'Lecture' ? request.lectureId : request.sheetId
-    const blob = request.status === 'COMPLETED' && publishedId
-      ? await uploadApi.downloadPublishedFile({ documentType: request.documentType, publishedId })
-      : await uploadApi.downloadUploadRequestFile(request.id)
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = request.fileName || 'download'
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
-  } catch (_err) {
-    error.value = 'Unable to download this file.'
-  } finally {
-    downloadingId.value = ''
-  }
-}
+const filteredRequests = computed(() => requests.value.filter((request) => (activeStatus.value === 'ALL' || (activeStatus.value === 'REJECTED' ? ['REJECTED', 'FAILED'].includes(request.status) : request.status === activeStatus.value)) && (activeType.value === 'ALL' || request.documentType === activeType.value)))
+onMounted(async () => { try { requests.value = (await uploadApi.uploadRequests()) ?? [] } catch { error.value = 'โหลดประวัติการอัปโหลดไม่สำเร็จ' } finally { loading.value = false } })
+function formatDate(value) { if (!value) return '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }) }
+function formatSize(bytes) { const value = Number(bytes) || 0; return value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / (1024 * 1024)).toFixed(1)} MB` }
+function nextAction(request) { return { PENDING: 'ผู้ดูแลกำลังตรวจสอบคุณภาพและเอกสารซ้ำ', APPROVED: 'อนุมัติแล้วและกำลังเผยแพร่', COMPLETED: 'เผยแพร่แล้ว ผู้ใช้คนอื่นค้นหาและใช้งานได้', REJECTED: 'อ่านเหตุผลด้านล่างก่อนแก้ไขและส่งใหม่', FAILED: 'การอัปโหลดไม่สำเร็จ กรุณาส่งรายการใหม่' }[request.status] || 'ติดตามสถานะรายการนี้ได้จากหน้านี้' }
+async function downloadFile(request) { error.value = ''; downloadingId.value = request.id; try { const publishedId = request.documentType === 'Lecture' ? request.lectureId : request.sheetId; const blob = request.status === 'COMPLETED' && publishedId ? await uploadApi.downloadPublishedFile({ documentType: request.documentType, publishedId }) : await uploadApi.downloadUploadRequestFile(request.id); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = request.fileName || 'document'; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url) } catch { error.value = 'ดาวน์โหลดไฟล์นี้ไม่สำเร็จ' } finally { downloadingId.value = '' } }
 </script>
-
-<template>
-  <section class="page-panel">
-    <div class="panel__header">
-      <div>
-        <p class="eyebrow">History</p>
-        <h1>My Uploads</h1>
-        <p>Track submitted files from review through publication.</p>
-      </div>
-      <span v-if="!loading && !error" class="count-pill">{{ filteredRequests.length }} requests</span>
-    </div>
-
-    <div class="request-tabs" aria-label="Filter upload requests by status">
-      <button v-for="status in statuses" :key="status" class="tab-button" :class="{ 'tab-button--active': activeStatus === status }" type="button" @click="activeStatus = status">
-        {{ status === 'ALL' ? 'All' : displayStatus(status) }}
-      </button>
-    </div>
-
-    <div v-if="loading" class="loading-state skeleton-list">
-      <div class="skeleton-line"></div>
-      <div class="skeleton-line"></div>
-      <div class="skeleton-line"></div>
-    </div>
-    <p v-else-if="error" class="form-error">{{ error }}</p>
-
-    <div v-else-if="filteredRequests.length" class="request-list">
-      <article v-for="request in filteredRequests" :key="request.id" class="request-card">
-        <div class="request-card__main">
-          <span class="status" :class="`status--${request.status.toLowerCase()}`">{{ displayStatus(request.status) }}</span>
-          <h2>{{ request.title || request.fileName }}</h2>
-          <p>{{ request.fileName }} - {{ request.courseName || 'Course pending' }} - {{ request.documentType }} - Submitted {{ formatDate(request.createdAt) }}</p>
-          <p v-if="request.status === 'REJECTED'" class="request-card__reason">Reason: {{ request.rejectionReason || 'No reason provided.' }}</p>
-        </div>
-        <button class="button button--ghost button--small" type="button" @click="openId = openId === request.id ? '' : request.id">
-          {{ openId === request.id ? 'Hide details' : 'View details' }}
-        </button>
-      </article>
-    </div>
-
-    <div v-else class="empty-state">
-      <h2>{{ requests.length ? 'No requests in this status' : 'No upload requests yet' }}</h2>
-      <p>{{ requests.length ? 'Choose another status filter.' : 'Use Upload Material to submit a file for administrator review.' }}</p>
-    </div>
-
-    <section v-if="selectedRequest" class="request-details">
-      <div class="panel__header">
-        <div>
-          <p class="eyebrow">Request details</p>
-          <h2>{{ selectedRequest.title }}</h2>
-        </div>
-        <span class="status" :class="`status--${selectedRequest.status.toLowerCase()}`">{{ selectedRequest.status }}</span>
-      </div>
-      <UploadStatusTimeline :status="selectedRequest.status" />
-      <dl class="detail-grid">
-        <div><dt>File</dt><dd>{{ selectedRequest.fileName }}</dd></div>
-        <div><dt>Size</dt><dd>{{ formatSize(selectedRequest.fileSize) }}</dd></div>
-        <div><dt>Course</dt><dd>{{ selectedRequest.courseName || '-' }}</dd></div>
-        <div><dt>Type</dt><dd>{{ selectedRequest.documentType || '-' }}</dd></div>
-        <div><dt>Academic year</dt><dd>{{ selectedRequest.academicYear || '-' }}</dd></div>
-        <div><dt>Semester</dt><dd>{{ selectedRequest.semester || '-' }}</dd></div>
-        <div><dt>Duplicate review</dt><dd>{{ selectedRequest.duplicateStatus || 'NONE' }}</dd></div>
-        <div><dt>Instructor</dt><dd>{{ selectedRequest.instructorName || '-' }}</dd></div>
-        <div><dt>Admin decision</dt><dd>{{ selectedRequest.decidedByUsername || '-' }}</dd></div>
-        <div><dt>Updated</dt><dd>{{ formatDate(selectedRequest.updatedAt) }}</dd></div>
-      </dl>
-      <div class="detail-actions">
-        <button class="button button--primary" type="button" :disabled="downloadingId === selectedRequest.id" @click="downloadFile(selectedRequest)">
-          {{ downloadingId === selectedRequest.id ? 'Downloading...' : 'Download file' }}
-        </button>
-      </div>
-      <p v-if="selectedRequest.status === 'REJECTED'" class="form-error">{{ selectedRequest.rejectionReason || 'This request was rejected.' }}</p>
-      <div class="next-action">{{ nextAction(selectedRequest) }}</div>
-    </section>
-  </section>
-</template>
+<template><section :class="embedded ? 'embedded-section' : 'page-panel'"><div class="panel__header"><div><p class="eyebrow">Submission history</p><h2>การอัปโหลดของฉัน</h2><p>หนึ่งรายการนับเป็นหนึ่งผลงาน ตั้งแต่ส่งตรวจจนเผยแพร่</p></div><span v-if="!loading && !error" class="count-pill">{{ filteredRequests.length }} รายการ</span></div><div class="filter-cluster"><div class="request-tabs" aria-label="กรองตามสถานะ"><button v-for="status in statuses" :key="status" class="tab-button" :class="{ 'tab-button--active': activeStatus === status }" type="button" @click="activeStatus = status">{{ status === 'ALL' ? 'ทั้งหมด' : statusLabel(status) }}</button></div><label class="compact-select">ประเภท<select v-model="activeType"><option v-for="type in types" :key="type" :value="type">{{ type === 'ALL' ? 'ทุกประเภท' : documentTypeLabel(type) }}</option></select></label></div><div v-if="loading" class="loading-state skeleton-list"><div class="skeleton-line"></div><div class="skeleton-line"></div></div><p v-else-if="error" class="form-error">{{ error }}</p><div v-else-if="filteredRequests.length" class="request-list"><article v-for="request in filteredRequests" :key="request.id" class="request-card"><div class="request-card__main"><div class="badge-row"><StatusBadge :value="request.status" /><StatusBadge v-if="request.duplicateStatus !== 'NONE'" :value="request.duplicateStatus" duplicate /></div><h3>{{ request.title || request.fileName }}</h3><p>{{ request.fileName }} · {{ request.courseName || 'รอระบุรายวิชา' }} · {{ documentTypeLabel(request.documentType) }} · ส่งเมื่อ {{ formatDate(request.createdAt) }}</p><p v-if="request.status === 'REJECTED'" class="request-card__reason"><strong>เหตุผล:</strong> {{ request.rejectionReason || 'ผู้ดูแลไม่ได้ระบุเหตุผล' }}</p></div><button class="button button--ghost button--small" type="button" :aria-expanded="openId === request.id" @click="openId = openId === request.id ? '' : request.id">{{ openId === request.id ? 'ซ่อนรายละเอียด' : 'ดูรายละเอียด' }}</button></article></div><div v-else class="empty-state"><h3>{{ requests.length ? 'ไม่มีรายการในตัวกรองนี้' : 'ยังไม่มีการอัปโหลด' }}</h3><p>{{ requests.length ? 'ลองเลือกสถานะหรือประเภทอื่น' : 'เริ่มแบ่งปันเอกสารแรกของคุณได้จากแท็บอัปโหลด' }}</p></div><section v-if="selectedRequest" class="request-details"><div class="panel__header"><div><p class="eyebrow">Request details</p><h2>{{ selectedRequest.title }}</h2></div><StatusBadge :value="selectedRequest.status" /></div><UploadStatusTimeline :status="selectedRequest.status" /><dl class="detail-grid"><div><dt>ไฟล์</dt><dd>{{ selectedRequest.fileName }}</dd></div><div><dt>ขนาด</dt><dd>{{ formatSize(selectedRequest.fileSize) }}</dd></div><div><dt>รายวิชา</dt><dd>{{ selectedRequest.courseName || '—' }}</dd></div><div><dt>ประเภท</dt><dd>{{ documentTypeLabel(selectedRequest.documentType) }}</dd></div><div><dt>ปี / ภาคเรียน</dt><dd>{{ selectedRequest.academicYear || '—' }} / {{ selectedRequest.semester || '—' }}</dd></div><div><dt>การตรวจเอกสารซ้ำ</dt><dd>{{ duplicateLabel(selectedRequest.duplicateStatus || 'NONE') }}</dd></div><div><dt>ผู้สอน</dt><dd>{{ selectedRequest.instructorName || '—' }}</dd></div><div><dt>ผู้ตรวจ</dt><dd>{{ selectedRequest.decidedByUsername || '—' }}</dd></div></dl><button class="button button--primary" type="button" :disabled="downloadingId === selectedRequest.id" @click="downloadFile(selectedRequest)">{{ downloadingId === selectedRequest.id ? 'กำลังดาวน์โหลด…' : 'ดาวน์โหลดไฟล์' }}</button><p v-if="selectedRequest.status === 'REJECTED'" class="form-error">{{ selectedRequest.rejectionReason || 'รายการนี้ถูกปฏิเสธ' }}</p><div class="next-action">{{ nextAction(selectedRequest) }}</div></section></section></template>

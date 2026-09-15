@@ -9,6 +9,11 @@ export const documentApi = {
   courseYears: (id, type = '') => request({ url: `/courses/${encodeURIComponent(id)}/years?type=${encodeURIComponent(type)}` }),
   courseYear: (id, year, type = '') => request({ url: `/courses/${encodeURIComponent(id)}/years/${encodeURIComponent(year)}?type=${encodeURIComponent(type)}` }),
   search: (query, type = '') => request({ url: `/documents/search?q=${encodeURIComponent(query ?? '')}&type=${encodeURIComponent(type)}` }),
+  helpful: (document, helpful) => request({
+    url: `/documents/${document.documentType.toLowerCase()}/${document.id}/helpful`,
+    method: 'PUT',
+    data: { helpful }
+  }),
   view: (document) => apiClient.get(`/documents/${document.documentType.toLowerCase()}/${document.id}/view`, { responseType: 'blob' }).then(fileResponse),
   download: (document) => apiClient.get(`/documents/${document.documentType.toLowerCase()}/${document.id}/download`, { responseType: 'blob' }).then(fileResponse)
 }

@@ -1,4 +1,5 @@
 import { countUsers, listUsers } from '../repositories/user.repository.js'
+import { countLecturesByStatus } from '../repositories/lecture.repository.js'
 import {
   countSheets,
   countSheetsByStatus,
@@ -28,7 +29,9 @@ export function getUploadRequests(_req, res) {
     const duplicateMatches = findDuplicateMatches(request)
     const duplicateStatus = duplicateMatches.some((match) => match.matchType === 'EXACT_DUPLICATE')
       ? 'EXACT_DUPLICATE'
-      : duplicateMatches.length ? 'POSSIBLE_DUPLICATE' : request.duplicateStatus
+      : duplicateMatches.some((match) => match.matchType === 'CONTENT_DUPLICATE')
+        ? 'CONTENT_DUPLICATE'
+        : duplicateMatches.length ? 'POSSIBLE_DUPLICATE' : request.duplicateStatus
     return { ...request, duplicateStatus, duplicateMatches }
   }))
 }
@@ -229,6 +232,7 @@ export function getStats(_req, res) {
     totalSheets: countSheets(),
     pendingCount: countSheetsByStatus('PENDING'),
     approvedCount: countSheetsByStatus('APPROVED'),
+    approvedDocuments: countSheetsByStatus('APPROVED') + countLecturesByStatus('APPROVED'),
     pendingRequests: countUploadRequestsByStatus('PENDING'),
     approvedRequests: countUploadRequestsByStatus('APPROVED'),
     rejectedRequests: countUploadRequestsByStatus('REJECTED')

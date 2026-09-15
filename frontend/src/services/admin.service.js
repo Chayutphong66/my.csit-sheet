@@ -7,6 +7,10 @@ export const adminApi = {
     apiClient
       .get(`/admin/upload-requests/${id}/file`, { responseType: 'blob' })
       .then((response) => response.data),
+  publicDocumentFile: (match, action = 'view') =>
+    apiClient
+      .get(`/documents/${match.documentType.toLowerCase()}/${match.publicDocumentId}/${action}`, { responseType: 'blob' })
+      .then((response) => response.data),
   adminUsers: () => request({ url: '/admin/users' }),
   adminCreateUploadRequest: (data) =>
     request({ url: '/admin/upload-requests', method: 'POST', data }),

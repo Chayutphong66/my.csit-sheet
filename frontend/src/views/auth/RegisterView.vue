@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/authStore'
 const auth = useAuthStore()
 const router = useRouter()
 const message = ref('')
-const form = reactive({ username: '', email: '', password: '' })
+const form = reactive({ displayName: '', username: '', email: '', password: '' })
 
 async function submit() {
   const data = await auth.register(form)
@@ -17,8 +17,12 @@ async function submit() {
 </script>
 
 <template>
-  <AuthPanel title="Create account" subtitle="Register to submit study material and track administrator review decisions." :error="auth.error">
+  <AuthPanel title="สร้างบัญชี" subtitle="สมัครเพื่อแบ่งปันเอกสารและติดตามผลการตรวจสอบจากผู้ดูแล" :error="auth.error">
     <form class="form" @submit.prevent="submit">
+      <label>
+        ชื่อที่แสดง
+        <input v-model="form.displayName" required minlength="2" maxlength="80" autocomplete="name" placeholder="เช่น สมชาย ใจแบ่งปัน" />
+      </label>
       <label>
         Username
         <input v-model="form.username" required minlength="3" placeholder="student01" />
@@ -28,14 +32,14 @@ async function submit() {
         <input v-model="form.email" type="email" required placeholder="student@nu.ac.th" />
       </label>
       <label>
-        Password
-        <input v-model="form.password" type="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters" />
+        รหัสผ่าน
+        <input v-model="form.password" type="password" required minlength="8" autocomplete="new-password" placeholder="อย่างน้อย 8 ตัวอักษร" />
       </label>
       <p v-if="message" class="form-success">{{ message }}</p>
       <button class="button button--primary button--wide" :disabled="auth.loading">
-        {{ auth.loading ? 'Creating account...' : 'Create account' }}
+        {{ auth.loading ? 'กำลังสร้างบัญชี…' : 'สร้างบัญชี' }}
       </button>
-      <RouterLink to="/login" class="text-link">I already have an account</RouterLink>
+      <RouterLink to="/login" class="text-link">มีบัญชีอยู่แล้ว</RouterLink>
     </form>
   </AuthPanel>
 </template>

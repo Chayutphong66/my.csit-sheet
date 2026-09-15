@@ -48,7 +48,7 @@ onMounted(async () => {
   try {
     metadata.value = await sheetApi.metadata()
   } catch (_err) {
-    error.value = 'Unable to load upload metadata.'
+    error.value = 'โหลดข้อมูลสำหรับอัปโหลดไม่สำเร็จ'
   }
 })
 
@@ -65,7 +65,7 @@ function onFileChange(event) {
   const file = event.target.files?.[0]
   if (!file) return
   if (file.size > MAX_FILE_BYTES) {
-    error.value = 'File is too large. Maximum size is 20 MB.'
+    error.value = 'ไฟล์มีขนาดเกิน 20 MB'
     resetFile()
     return
   }
@@ -81,7 +81,7 @@ function onFileChange(event) {
     form.value.fileData = String(reader.result).split(',')[1] ?? ''
   }
   reader.onerror = () => {
-    error.value = 'Could not read the selected file.'
+    error.value = 'ไม่สามารถอ่านไฟล์ที่เลือกได้'
     form.value.fileData = ''
   }
   reader.readAsDataURL(file)
@@ -92,13 +92,13 @@ async function submitUpload() {
   error.value = ''
   message.value = ''
   if (!form.value.fileData) {
-    error.value = 'Choose a file before submitting.'
+    error.value = 'กรุณาเลือกไฟล์ก่อนส่งตรวจสอบ'
     return
   }
   loading.value = true
   try {
     const request = await uploadApi.createUploadRequest(form.value)
-    message.value = `"${request.fileName}" was submitted for administrator review.`
+    message.value = `ส่ง “${request.fileName}” ให้ผู้ดูแลตรวจสอบแล้ว`
     form.value = emptyForm()
     if (fileInput.value) fileInput.value.value = ''
     emit('uploaded', request)
@@ -117,48 +117,48 @@ async function submitUpload() {
 
     <section class="upload-dropzone">
       <input ref="fileInput" type="file" :accept="ACCEPTED_FILES" required @change="onFileChange" />
-      <span class="upload-dropzone__title">Choose a file</span>
-      <span class="upload-dropzone__hint">PDF, Office files, text, JPG, or PNG up to 20 MB.</span>
+      <span class="upload-dropzone__title">ลากไฟล์มาวาง หรือเลือกไฟล์จากเครื่อง</span>
+      <span class="upload-dropzone__hint">รองรับ PDF, Office, text, JPG และ PNG ขนาดไม่เกิน 20 MB</span>
       <div v-if="form.fileName" class="upload-file">
         <span>{{ form.fileName }} - {{ formatFileSize(form.fileSize) }}</span>
-        <button class="button button--ghost button--small" type="button" @click.stop="resetFile">Remove</button>
+        <button class="button button--ghost button--small" type="button" @click.stop="resetFile">นำไฟล์ออก</button>
       </div>
     </section>
 
     <label>
-      Document title
-      <input v-model="form.title" required placeholder="Algorithm summary" />
+      ชื่อเอกสาร
+      <input v-model="form.title" required placeholder="เช่น สรุป Algorithm ก่อนสอบ" />
     </label>
 
     <div class="form-grid">
       <label>
-        Course
+        รายวิชา
         <select v-model="form.courseId" required>
-          <option value="" disabled>Select course</option>
+          <option value="" disabled>เลือกรายวิชา</option>
           <option v-for="course in metadata.courses" :key="course.id" :value="course.id">{{ course.name }}</option>
         </select>
       </label>
       <label>
-        Type
+        ประเภทเอกสาร
         <select v-model="form.documentType" required>
-          <option value="" disabled>Lecture or Sheet</option>
-          <option v-for="type in metadata.documentTypes" :key="type" :value="type">{{ type }}</option>
+          <option value="" disabled>เอกสารการสอน หรือ ชีทสรุป</option>
+          <option v-for="type in metadata.documentTypes" :key="type" :value="type">{{ type === 'Lecture' ? 'เอกสารการสอน' : 'ชีทสรุป' }}</option>
         </select>
       </label>
-      <label>Academic year<input v-model="form.academicYear" required inputmode="numeric" pattern="[0-9]{4}" placeholder="2568" /></label>
-      <label>Semester<input v-model="form.semester" required maxlength="30" placeholder="1" /></label>
+      <label>ปีการศึกษา<input v-model="form.academicYear" required inputmode="numeric" pattern="[0-9]{4}" placeholder="2568" /></label>
+      <label>ภาคเรียน<input v-model="form.semester" required maxlength="30" placeholder="1" /></label>
       <label>
-        Instructor
+        ผู้สอน
         <select v-model="form.instructorId" required>
-          <option value="" disabled>Select instructor</option>
+          <option value="" disabled>เลือกผู้สอน</option>
           <option v-for="instructor in metadata.instructors" :key="instructor.id" :value="instructor.id">{{ instructor.name }}</option>
         </select>
       </label>
     </div>
 
-    <p class="section-copy">Your upload will be reviewed by an administrator before it becomes public.</p>
+    <p class="section-copy">ผู้ดูแลจะตรวจคุณภาพและเอกสารซ้ำก่อนเผยแพร่สู่คลังสาธารณะ</p>
     <button class="button button--primary" :disabled="loading" type="submit">
-      {{ loading ? 'Submitting...' : 'Submit for review' }}
+      {{ loading ? 'กำลังส่ง…' : 'ส่งให้ผู้ดูแลตรวจสอบ' }}
     </button>
   </form>
 </template>

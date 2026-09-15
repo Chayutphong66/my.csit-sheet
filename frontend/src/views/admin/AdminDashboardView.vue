@@ -2,16 +2,16 @@
 import DashboardShell from '@/components/layout/DashboardShell.vue'
 
 const navItems = [
-  { label: 'Requests', to: '/admin/request' },
-  { label: 'Publish', to: '/admin/upload' },
-  { label: 'Status', to: '/admin/status' },
-  { label: 'Subjects', to: '/admin/subject' },
-  { label: 'Dashboard', to: '/admin/dashboard' }
+  { label: 'ภาพรวม', to: '/admin/dashboard' },
+  { label: 'คิวตรวจสอบ', to: '/admin/request' },
+  { label: 'เผยแพร่เอกสาร', to: '/admin/upload' },
+  { label: 'ผู้ใช้งาน', to: '/admin/status' },
+  { label: 'รายวิชา', to: '/admin/subject' }
 ]
 </script>
 
 <template>
-  <DashboardShell role-label="Admin" :nav-items="navItems">
+  <DashboardShell role-label="ผู้ดูแลระบบ" :nav-items="navItems">
     <RouterView />
   </DashboardShell>
 </template>

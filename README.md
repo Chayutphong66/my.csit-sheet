@@ -1,10 +1,14 @@
 # CSIT Sheet
 
-CSIT Sheet is a Vue 3 and Express learning-material platform. The main user navigation is Home, Lectures, Sheets, Upload, and Profile. Authenticated users browse published files through Course → Academic Year → Semester, search globally or by structured document type, preview or download documents, submit Lecture or Sheet content from Upload, track their own requests, and view contribution statistics in Profile. Administrators inspect duplicate warnings, preview, approve, reject, reject as duplicate, or publish directly. SQLite stores workflow data and published file BLOBs in separate Lecture and Sheet file tables.
+CSIT Sheet is a Thai-first Vue 3 and Express academic knowledge-sharing platform. The user navigation is หน้าหลัก, เอกสารการสอน, ชีทสรุป, อัปโหลด, and โปรไฟล์. Authenticated users browse Course → Academic Year → Semester, search documents and contributors from one place, open privacy-safe public profiles, preview/download documents, submit material, track requests, and see contributor impact. Public cards show clickable contributor identity, qualified Views/Downloads, and Helpful feedback. Admins work from an action-needed dashboard and focused approval workspace with exact/content/possible duplicate evidence.
+
+SQLite stores one canonical `file_assets` BLOB per server-calculated SHA-256. Upload requests and public Lecture/Sheet file records use safe references to that asset.
+
+Public contributor APIs expose only display name, username, avatar, derived recognition, public aggregates, badges, and approved documents. Email, credentials, tokens, role, and private request states are excluded.
 
 ## Requirements
 
-- Node.js 22.5 or newer (the backend uses `node:sqlite`)
+- Node.js 22.5 or newer (`node:sqlite` is required)
 - npm 10 or newer
 
 ## Local development
@@ -17,30 +21,52 @@ npm run db:seed
 npm run dev
 ```
 
-The frontend runs at `http://127.0.0.1:5173`; Vite proxies `/api` to the backend at `http://127.0.0.1:8080`.
+The frontend runs at `http://127.0.0.1:5173`; Vite proxies `/api` to `http://127.0.0.1:8080`.
 
 Development seed accounts:
 
 - User: `user@csitsheet.app` / `User@1234`
 - Admin: `admin@csitsheet.app` / `Admin@1234`
 
-Normal production startup never inserts demo accounts. Run `db:seed` only for local/demo environments and never against a public production database.
+Production startup never inserts demo accounts. Run `db:seed` only for local/demo environments.
 
 ## Commands
 
 ```bash
-npm run db:migrate   # apply idempotent schema migrations
-npm run db:seed      # add development seed data when tables are empty
-npm test             # backend integration tests
-npm run test:frontend # Vue component tests
-npm run lint         # JavaScript and Vue lint checks
-npm run build        # production Vue build
-npm start            # start the API (and built frontend in production)
+npm run db:migrate        # apply idempotent schema migrations/backfill
+npm run db:seed           # add development seed data when tables are empty
+npm run db:storage-report # integrity and FileAsset/reference counts
+npm run db:cleanup-files  # delete only unreferenced FileAssets
+npm test                  # backend integration + frontend component tests
+npm run test:backend
+npm run test:frontend
+npm run lint
+npm run build
+npm run start:production  # migrate, then serve API and built SPA
 ```
 
-## Production deployment
+## Contributor rules
 
-The simplest deployment is one Node service with a persistent disk:
+Contribution Score is calculated dynamically from authoritative records:
+
+- approved unique contribution: 20 points;
+- qualified unique non-owner download: 2 points;
+- active non-owner Helpful vote: 5 points;
+- View: analytics only, no points.
+
+Database uniqueness permits one qualified View/Download kind and one active Helpful vote per authenticated actor/document. Owner interactions are served but do not add impact or score. Levels and the small badge set are derived deterministically and grant no permissions. One upload-request row remains one contribution throughout review and publication.
+
+## Duplicate and storage rules
+
+The server calculates binary SHA-256 and compares both PENDING requests and APPROVED documents. Supported extractable plain text and simple text-based PDFs also receive a conservative NFKC/lowercase/whitespace-normalized content fingerprint. Unsupported, compressed, encrypted, image-only, malformed, or complex files fall back safely to exact and metadata checks.
+
+- `EXACT_DUPLICATE`: binary hashes match, regardless of filename/type.
+- `CONTENT_DUPLICATE`: binary differs but a high-confidence content hash matches.
+- `POSSIBLE_DUPLICATE`: Course/year/semester/type/normalized title match only; admin must decide.
+
+Canonical bytes live once in `file_assets`; requests and public file rows keep references. Publication is transactional and does not copy the BLOB. A database trigger blocks deletion of referenced assets, and `db:cleanup-files` removes only zero-reference rows.
+
+## Production deployment
 
 ```bash
 npm ci
@@ -49,9 +75,7 @@ npm run db:migrate
 NODE_ENV=production npm start
 ```
 
-When `NODE_ENV=production`, Express serves `frontend/dist` and binds to `0.0.0.0` by default. Unknown frontend routes return the SPA entry point; unknown `/api/*` routes remain JSON 404 responses.
-
-Configure these environment variables:
+When `NODE_ENV=production`, Express serves `frontend/dist` and binds to `0.0.0.0` by default. Back up the SQLite database before migration and put it on persistent storage.
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
@@ -63,45 +87,12 @@ Configure these environment variables:
 | `HOST` | no | Bind host; production default is `0.0.0.0`. |
 | `ACCESS_TOKEN_TTL` | no | Access JWT duration, default `15m`. |
 | `REFRESH_TOKEN_TTL_DAYS` | no | Refresh session duration, default `7`. |
-| `VITE_API_URL` | when frontend is separate | API base URL used at frontend build time. |
+| `VITE_API_URL` | when frontend is separate | API base URL at frontend build time. |
 
-Generate a secret with:
+`GET /api/health` returns `{ "status": "ok" }`.
 
-```bash
-node -e "console.log(require('crypto').randomBytes(64).toString('base64url'))"
-```
+## Security and limits
 
-Use HTTPS in production so secure refresh cookies work. Back up the SQLite database and place it on persistent storage. The current upload policy accepts PDF, Office documents, text, JPEG, and PNG files up to 20 MB decoded.
+Passwords use salted scrypt hashes. JWT/rotated hashed refresh tokens, role and ownership checks, Helmet, restricted CORS, login throttling, prepared SQL, MIME/signature/size/filename validation, `nosniff`, and production-safe errors remain enabled. Pending/rejected files are never public interaction targets.
 
-## Health check
-
-`GET /api/health` returns:
-
-```json
-{ "status": "ok" }
-```
-
-## Architecture
-
-```text
-frontend/src/          Vue views, components, router, stores, API clients
-backend/src/routes/    REST route definitions and authorization
-backend/src/controllers/ request validation and HTTP responses
-backend/src/repositories/ prepared SQLite data access
-backend/src/data/      schema migration and development seed entry points
-backend/test/          API integration tests
-```
-
-Published files live in `lecture_files` or `sheet_files`. Pending/rejected bytes remain private in `upload_requests`. Successful publication is transactional and clears the copied temporary BLOB.
-
-`lectures` and `sheets` remain the publication source of truth. The Course hierarchy and search API use a read-only SQL union across those approved records; they do not create another document store. Academic years and semesters are derived from published data. Upload hashes are calculated server-side with SHA-256 and checked against both pending requests and published files.
-
-## Security notes
-
-Passwords are salted scrypt hashes. Access tokens are short-lived; opaque refresh tokens are hashed in SQLite, rotated, and delivered by httpOnly cookies. Protected APIs enforce authentication and role checks. Helmet, restricted CORS, login throttling, prepared SQL, upload validation, safe download headers, and production-safe error responses are enabled.
-
-## Known limits
-
-- SQLite BLOB storage is suitable for this project scale but should be reviewed before high-volume deployment.
-- Profile field editing and full admin material CRUD are not currently product features.
-- SQLite stores uploaded files in memory during API processing; review streaming/object storage before raising the 20 MB policy or scaling horizontally.
+The 20 MB policy buffers files in memory, and SQLite BLOB storage is appropriate only for the current project scale. Reassess streaming/object storage before increasing upload size or scaling horizontally. Profile editing and full admin material deletion are not current features.

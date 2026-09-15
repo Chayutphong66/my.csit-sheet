@@ -37,7 +37,7 @@ export function login({ usernameOrEmail, password }) {
   }
 }
 
-export function register({ username, email, password }) {
+export function register({ username, displayName, email, password }) {
   if (findUserByEmailOrUsername(email) || findUserByEmailOrUsername(username)) {
     const error = new Error('อีเมลหรือชื่อผู้ใช้นี้ถูกใช้แล้ว')
     error.status = 409
@@ -47,6 +47,7 @@ export function register({ username, email, password }) {
   createUser({
     id: crypto.randomUUID(),
     username,
+    displayName,
     email,
     password: hashPassword(password),
     role: 'USER',

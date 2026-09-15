@@ -2,12 +2,12 @@
 import AppNavbar from '@/components/layout/AppNavbar.vue'
 
 const features = [
-  { title: 'Separate catalogs', body: 'Lecture files and summary sheets stay distinct, searchable, and easy to understand.' },
-  { title: 'Reviewed uploads', body: 'Students submit material with course metadata and track every approval decision.' },
-  { title: 'Admin workflow', body: 'Moderators review pending uploads, publish approved files, and keep the library trustworthy.' }
+  { title: 'ค้นพบอย่างเป็นระบบ', body: 'เอกสารการสอนและชีทสรุปแยกชัด ค้นหาตามรายวิชา ปี และภาคเรียนได้ง่าย' },
+  { title: 'แบ่งปันอย่างมีคุณภาพ', body: 'ส่งเอกสารพร้อมข้อมูลรายวิชา ติดตามผลตรวจสอบ และเห็นผลกระทบของผลงาน' },
+  { title: 'ชุมชนที่น่าเชื่อถือ', body: 'ผู้ดูแลตรวจคุณภาพและเอกสารซ้ำก่อนเผยแพร่ให้ทุกคนใช้งาน' }
 ]
 
-const steps = ['Find a course', 'Open a file', 'Download material', 'Upload your notes']
+const steps = ['ค้นหารายวิชา', 'เลือกเอกสาร', 'ใช้งานและบอกว่ามีประโยชน์', 'แบ่งปันความรู้ต่อ']
 </script>
 
 <template>
@@ -16,15 +16,15 @@ const steps = ['Find a course', 'Open a file', 'Download material', 'Upload your
 
     <section class="hero">
       <div class="hero__content">
-        <p class="eyebrow">CSIT Learning Materials</p>
-        <h1>Find what you need to study.</h1>
+        <p class="eyebrow">CSIT knowledge sharing</p>
+        <h1>เรียนง่ายขึ้น เมื่อความรู้ถูกแบ่งปัน</h1>
         <p class="hero__lead">
-          CSIT Sheet brings lecture files, revision sheets, and student-made summaries into one polished academic workspace.
+          คลังเอกสารการสอน ชีทสรุป และผลงานจากเพื่อนนักศึกษา ที่ค้นหา ใช้งาน และส่งต่อคุณค่าได้ในพื้นที่เดียว
         </p>
         <div class="hero__actions">
-          <RouterLink to="/login" class="button button--primary">Start studying</RouterLink>
+          <RouterLink to="/login" class="button button--primary">เริ่มสำรวจคลังความรู้</RouterLink>
           <button class="button button--ghost" type="button" @click="document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })">
-            Explore features
+            ดูว่าระบบทำงานอย่างไร
           </button>
         </div>
       </div>
@@ -36,8 +36,8 @@ const steps = ['Find a course', 'Open a file', 'Download material', 'Upload your
 
     <section id="features" class="section">
       <div class="section-heading">
-        <p class="eyebrow">Product</p>
-        <h2>A quiet, reliable library for the materials students actually use.</h2>
+        <p class="eyebrow">Designed for students</p>
+        <h2>จากคลังไฟล์ สู่ชุมชนความรู้ที่เห็นคุณค่าของคนแบ่งปัน</h2>
       </div>
       <div class="feature-grid">
         <article v-for="feature in features" :key="feature.title" class="feature-card">
@@ -49,8 +49,8 @@ const steps = ['Find a course', 'Open a file', 'Download material', 'Upload your
 
     <section id="workflow" class="section section--muted">
       <div class="section-heading">
-        <p class="eyebrow">Workflow</p>
-        <h2>From search to download in seconds.</h2>
+        <p class="eyebrow">Community loop</p>
+        <h2>ค้นพบ ใช้งาน ขอบคุณ และแบ่งปันต่อ</h2>
       </div>
       <div class="step-list">
         <div v-for="(step, index) in steps" :key="step" class="step-item">
@@ -62,7 +62,7 @@ const steps = ['Find a course', 'Open a file', 'Download material', 'Upload your
 
     <footer id="contact" class="footer">
       <strong>CSIT Sheet</strong>
-      <span>Learning-material platform for CSIT students.</span>
+      <span>พื้นที่แบ่งปันความรู้สำหรับนักศึกษา CSIT</span>
     </footer>
   </div>
 </template>

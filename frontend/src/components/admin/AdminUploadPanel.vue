@@ -37,7 +37,7 @@ onMounted(async () => {
   try {
     metadata.value = await sheetApi.metadata()
   } catch (_err) {
-    error.value = 'Unable to load publishing metadata.'
+    error.value = 'โหลดข้อมูลสำหรับเผยแพร่ไม่สำเร็จ'
   }
 })
 
@@ -54,7 +54,7 @@ function onFileChange(event) {
   const file = event.target.files?.[0]
   if (!file) return
   if (file.size > MAX_FILE_BYTES) {
-    error.value = 'File is too large. Maximum size is 20 MB.'
+    error.value = 'ไฟล์มีขนาดเกิน 20 MB'
     resetFile()
     return
   }
@@ -66,7 +66,7 @@ function onFileChange(event) {
     : MIME_BY_EXTENSION[extension] || ''
   const reader = new FileReader()
   reader.onload = () => { form.value.fileData = String(reader.result).split(',')[1] ?? '' }
-  reader.onerror = () => { error.value = 'Could not read the selected file.' }
+  reader.onerror = () => { error.value = 'ไม่สามารถอ่านไฟล์ที่เลือกได้' }
   reader.readAsDataURL(file)
   if (!form.value.title) form.value.title = file.name.replace(/\.[^.]+$/, '')
 }
@@ -75,13 +75,13 @@ async function submitUpload() {
   error.value = ''
   message.value = ''
   if (!form.value.fileData) {
-    error.value = 'Choose a file before publishing.'
+    error.value = 'กรุณาเลือกไฟล์ก่อนเผยแพร่'
     return
   }
   loading.value = true
   try {
     const request = await adminApi.adminCreateUploadRequest(form.value)
-    message.value = `"${request.fileName}" was published to the ${request.documentType} catalog.`
+    message.value = `เผยแพร่ “${request.fileName}” ในคลังเอกสารแล้ว`
     form.value = emptyForm()
     if (fileInput.value) fileInput.value.value = ''
   } catch (err) {
@@ -97,8 +97,8 @@ async function submitUpload() {
     <div class="panel__header">
       <div>
         <p class="eyebrow">Admin publish</p>
-        <h1>Publish Material</h1>
-        <p>Validate and publish a Lecture or Sheet directly as an administrator.</p>
+        <h1>เผยแพร่เอกสารโดยตรง</h1>
+        <p>ตรวจข้อมูลและเผยแพร่เอกสารการสอนหรือชีทสรุปในฐานะผู้ดูแล</p>
       </div>
     </div>
 
@@ -108,23 +108,23 @@ async function submitUpload() {
     <form class="form request-form" @submit.prevent="submitUpload">
       <section class="upload-dropzone">
         <input ref="fileInput" type="file" :accept="ACCEPTED_FILES" required @change="onFileChange" />
-        <span class="upload-dropzone__title">Choose a publish-ready file</span>
-        <span class="upload-dropzone__hint">The material becomes public immediately after validation.</span>
+        <span class="upload-dropzone__title">เลือกไฟล์ที่พร้อมเผยแพร่</span>
+        <span class="upload-dropzone__hint">รายการจะเข้าสู่คลังสาธารณะทันทีหลังผ่าน validation</span>
         <div v-if="form.fileName" class="upload-file">
           <span>{{ form.fileName }} - {{ formatFileSize(form.fileSize) }}</span>
-          <button class="button button--ghost button--small" type="button" @click.stop="resetFile">Remove</button>
+          <button class="button button--ghost button--small" type="button" @click.stop="resetFile">นำไฟล์ออก</button>
         </div>
       </section>
-      <label>Document title<input v-model="form.title" required placeholder="Database lecture deck" /></label>
+      <label>ชื่อเอกสาร<input v-model="form.title" required placeholder="เช่น สไลด์ Database บทที่ 1" /></label>
       <div class="form-grid">
-        <label>Course<select v-model="form.courseId" required><option value="" disabled>Select course</option><option v-for="course in metadata.courses" :key="course.id" :value="course.id">{{ course.name }}</option></select></label>
-        <label>Type<select v-model="form.documentType" required><option value="" disabled>Select type</option><option v-for="type in metadata.documentTypes" :key="type" :value="type">{{ type }}</option></select></label>
-        <label>Academic year<input v-model="form.academicYear" required inputmode="numeric" pattern="[0-9]{4}" placeholder="2568" /></label>
-        <label>Semester<input v-model="form.semester" required maxlength="30" placeholder="1" /></label>
-        <label>Instructor<select v-model="form.instructorId" required><option value="" disabled>Select instructor</option><option v-for="instructor in metadata.instructors" :key="instructor.id" :value="instructor.id">{{ instructor.name }}</option></select></label>
-        <label>Date<input v-model="form.uploadDate" type="date" /></label>
+        <label>รายวิชา<select v-model="form.courseId" required><option value="" disabled>เลือกรายวิชา</option><option v-for="course in metadata.courses" :key="course.id" :value="course.id">{{ course.name }}</option></select></label>
+        <label>ประเภท<select v-model="form.documentType" required><option value="" disabled>เลือกประเภท</option><option v-for="type in metadata.documentTypes" :key="type" :value="type">{{ type === 'Lecture' ? 'เอกสารการสอน' : 'ชีทสรุป' }}</option></select></label>
+        <label>ปีการศึกษา<input v-model="form.academicYear" required inputmode="numeric" pattern="[0-9]{4}" placeholder="2568" /></label>
+        <label>ภาคเรียน<input v-model="form.semester" required maxlength="30" placeholder="1" /></label>
+        <label>ผู้สอน<select v-model="form.instructorId" required><option value="" disabled>เลือกผู้สอน</option><option v-for="instructor in metadata.instructors" :key="instructor.id" :value="instructor.id">{{ instructor.name }}</option></select></label>
+        <label>วันที่เอกสาร<input v-model="form.uploadDate" type="date" /></label>
       </div>
-      <button class="button button--primary" :disabled="loading" type="submit">{{ loading ? 'Publishing...' : 'Publish material' }}</button>
+      <button class="button button--primary" :disabled="loading" type="submit">{{ loading ? 'กำลังเผยแพร่…' : 'เผยแพร่เอกสาร' }}</button>
     </form>
   </section>
 </template>

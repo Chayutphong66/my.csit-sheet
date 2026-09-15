@@ -1,123 +1,14 @@
-﻿<script setup>
-import { computed, onMounted, ref } from 'vue'
+<script setup>
+import { onMounted, ref } from 'vue'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { uploadApi } from '@/services/upload.service'
-
-const auth = useAuthStore()
-const notifications = useNotificationStore()
-const contributions = ref({ total: 0, lectures: 0, sheets: 0, published: 0, pending: 0, rejected: 0, recent: [] })
-const contributionLoading = ref(true)
-const contributionError = ref('')
-const initials = computed(() => String(auth.user?.username || 'U').slice(0, 2).toUpperCase())
-
-function formatDate(value) {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime())
-    ? value
-    : date.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
-}
-
-onMounted(() => {
-  notifications.load()
-  uploadApi.contributions()
-    .then((value) => { contributions.value = value })
-    .catch(() => { contributionError.value = 'Unable to load contributions.' })
-    .finally(() => { contributionLoading.value = false })
-})
-
-function contributionStatus(status) {
-  if (status === 'COMPLETED') return 'Published'
-  if (['PENDING', 'PROCESSING', 'APPROVED'].includes(status)) return 'Pending'
-  return status === 'FAILED' ? 'Rejected' : String(status || '').toLowerCase().replace(/^./, (letter) => letter.toUpperCase())
-}
-
-function contributionRoute(item) {
-  return item.status === 'COMPLETED' && item.courseId && item.academicYear
-    ? `/dashboard/courses/${item.courseId}/years/${item.academicYear}`
-    : { path: '/dashboard/upload', query: { request: item.id } }
-}
+import UserIdentity from '@/components/shared/UserIdentity.vue'
+import StatusBadge from '@/components/shared/StatusBadge.vue'
+import { documentTypeLabel } from '@/services/terminology'
+const auth = useAuthStore(); const notifications = useNotificationStore(); const empty = { total: 0, lectures: 0, sheets: 0, published: 0, pending: 0, rejected: 0, totalViews: 0, totalDownloads: 0, helpful: 0, contributionScore: 0, contributorLevel: 'New Contributor', badges: [], recent: [] }; const contributions = ref({ ...empty }); const loading = ref(true); const error = ref('')
+function formatDate(value) { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }) }
+onMounted(() => { notifications.load(); uploadApi.contributions().then((value) => { contributions.value = { ...empty, ...value, badges: value.badges ?? [], recent: value.recent ?? [] } }).catch(() => { error.value = 'โหลดข้อมูลการแบ่งปันไม่สำเร็จ' }).finally(() => { loading.value = false }) })
+function contributionRoute(item) { return item.status === 'COMPLETED' && item.courseId && item.academicYear ? `/dashboard/courses/${item.courseId}/years/${item.academicYear}` : { path: '/dashboard/upload', query: { request: item.id } } }
 </script>
-
-<template>
-  <section class="page-panel">
-    <div class="panel__header">
-      <div>
-        <p class="eyebrow">Profile</p>
-        <h1>Profile</h1>
-        <p>Review your account information and academic contributions.</p>
-      </div>
-    </div>
-
-    <div class="profile-grid">
-      <div class="profile-avatar"><img v-if="auth.user?.avatarUrl" :src="auth.user.avatarUrl" alt="Profile picture" /><strong v-else>{{ initials }}</strong></div>
-      <div><span>Username</span><strong>{{ auth.user?.username }}</strong></div>
-      <div><span>Email</span><strong>{{ auth.user?.email }}</strong></div>
-      <div><span>Role</span><strong>{{ auth.user?.role }}</strong></div>
-    </div>
-
-    <div class="profile-section">
-      <div class="panel__header">
-        <div>
-          <p class="eyebrow">Activity</p>
-          <h2>My Contributions</h2>
-          <p>Each submission is counted once throughout review and publication.</p>
-        </div>
-      </div>
-      <div v-if="contributionLoading" class="loading-state">Loading contributions...</div>
-      <p v-else-if="contributionError" class="form-error">{{ contributionError }}</p>
-      <template v-else>
-        <div class="profile-grid contribution-stats">
-          <div><span>Total Contributions</span><strong>{{ contributions.total }}</strong></div>
-          <div><span>Lectures</span><strong>{{ contributions.lectures }}</strong></div>
-          <div><span>Sheets</span><strong>{{ contributions.sheets }}</strong></div>
-          <div><span>Published</span><strong>{{ contributions.published }}</strong></div>
-          <div><span>Pending</span><strong>{{ contributions.pending }}</strong></div>
-          <div><span>Rejected</span><strong>{{ contributions.rejected }}</strong></div>
-        </div>
-        <div v-if="contributions.recent.length" class="request-list">
-          <RouterLink v-for="item in contributions.recent" :key="item.id" class="request-card" :to="contributionRoute(item)">
-            <div class="request-card__main"><span class="status" :class="`status--${item.status.toLowerCase()}`">{{ contributionStatus(item.status) }}</span><h3>{{ item.title }}</h3><p>{{ item.documentType }} · {{ item.courseName }} · {{ item.academicYear }} · Semester {{ item.semester }}</p></div>
-          </RouterLink>
-        </div>
-        <div v-else class="empty-state"><h3>No contributions yet</h3><p>Your submitted Lectures and Sheets will appear here.</p><RouterLink class="button button--primary" to="/dashboard/upload">Upload material</RouterLink></div>
-      </template>
-    </div>
-
-    <div class="notifications-section">
-      <div class="notifications-head">
-        <span class="notifications-bell" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
-            <path d="M10 21h4" />
-          </svg>
-          <span v-if="notifications.unreadCount" class="notifications-bell__dot"></span>
-        </span>
-        <div class="notifications-head__text">
-          <h2>Notifications</h2>
-          <p>Upload request updates and administrator decisions appear here.</p>
-        </div>
-        <span v-if="notifications.unreadCount" class="notification-badge">{{ notifications.unreadCount }} unread</span>
-      </div>
-
-      <div v-if="notifications.loading" class="loading-state"><p>Loading notifications...</p></div>
-      <p v-else-if="notifications.error" class="form-error">{{ notifications.error }}</p>
-      <div v-else-if="notifications.items.length" class="notification-list">
-        <article v-for="notification in notifications.items" :key="notification.id" class="notification-card" :class="{ 'notification-card--unread': !notification.isRead }">
-          <div>
-            <h3>{{ notification.title }}</h3>
-            <p>{{ notification.message }}</p>
-            <small>{{ formatDate(notification.createdAt) }}</small>
-          </div>
-          <button class="button button--ghost button--small" type="button" :disabled="notification.isRead" @click="notifications.markRead(notification.id)">
-            {{ notification.isRead ? 'Read' : 'Mark read' }}
-          </button>
-        </article>
-      </div>
-      <div v-else class="empty-state">
-        <h3>No notifications</h3>
-        <p>Updates will appear here when your upload request changes status.</p>
-      </div>
-    </div>
-  </section>
-</template>
+<template><section class="page-panel"><header class="profile-hero"><div><p class="eyebrow">Your contribution home</p><h1>โปรไฟล์และผลกระทบ</h1><UserIdentity :username="auth.user?.username" :display-name="auth.user?.displayName" :avatar-url="auth.user?.avatarUrl" :linked="false" /></div><RouterLink class="button button--ghost" :to="`/dashboard/users/${encodeURIComponent(auth.user?.username || '')}`">ดูโปรไฟล์สาธารณะ</RouterLink></header><section class="private-account-card" aria-label="ข้อมูลบัญชีส่วนตัว"><div><span>อีเมลส่วนตัว</span><strong>{{ auth.user?.email }}</strong></div><div><span>สิทธิ์การใช้งาน</span><strong>{{ auth.user?.role }}</strong></div><p>ข้อมูลส่วนนี้เห็นได้เฉพาะคุณและไม่แสดงบนโปรไฟล์สาธารณะ</p></section><div v-if="loading" class="loading-state skeleton-list"><div class="skeleton-line"></div><div class="skeleton-line"></div></div><p v-else-if="error" class="form-error">{{ error }}</p><template v-else><section class="content-section"><div class="section-heading"><div><p class="eyebrow">My impact</p><h2>การแบ่งปันของฉัน</h2></div><div class="level-pill">{{ contributions.contributorLevel }} · {{ contributions.contributionScore }} คะแนน</div></div><div class="stats-grid"><article class="stat-card"><span>ผลงานทั้งหมด</span><strong>{{ contributions.total }}</strong><p>{{ contributions.published }} เผยแพร่แล้ว</p></article><article class="stat-card stat-card--lavender"><span>เอกสารการสอน / ชีท</span><strong>{{ contributions.lectures }} / {{ contributions.sheets }}</strong><p>แยกตามประเภท</p></article><article class="stat-card stat-card--yellow"><span>การเข้าถึง</span><strong>{{ contributions.totalDownloads }}</strong><p>{{ contributions.totalViews }} ครั้งที่ดู</p></article><article class="stat-card stat-card--green"><span>ชุมชนบอกว่า</span><strong>{{ contributions.helpful }}</strong><p>มีประโยชน์</p></article></div><div class="badge-list"><span v-for="badge in contributions.badges" :key="badge" class="recognition-badge">★ {{ badge }}</span><span v-if="!contributions.badges.length" class="material-meta">เผยแพร่ผลงานที่มีประโยชน์เพื่อรับ Badge แรก</span></div></section><section class="content-section"><div class="section-heading"><h2>ผลงานล่าสุด</h2><span class="count-pill">{{ contributions.recent.length }} รายการ</span></div><div v-if="contributions.recent.length" class="request-list"><RouterLink v-for="item in contributions.recent" :key="item.id" class="request-card" :to="contributionRoute(item)"><div class="request-card__main"><StatusBadge :value="item.status" /><h3>{{ item.title }}</h3><p>{{ documentTypeLabel(item.documentType) }} · {{ item.courseName }} · ปี {{ item.academicYear }} · เทอม {{ item.semester }}</p><p v-if="item.status === 'COMPLETED'" class="document-impact__counts"><span>{{ item.views }} ครั้งที่ดู</span><span>{{ item.downloads }} ดาวน์โหลด</span><span>{{ item.helpful }} มีประโยชน์</span></p></div></RouterLink></div><div v-else class="empty-state"><h3>ยังไม่มีผลงาน</h3><p>เริ่มจากเอกสารที่ช่วยให้เพื่อนเข้าใจบทเรียนได้ง่ายขึ้น</p><RouterLink class="button button--primary" to="/dashboard/upload">แบ่งปันเอกสาร</RouterLink></div></section></template><section class="notifications-section"><div class="section-heading"><div><p class="eyebrow">Updates</p><h2>การแจ้งเตือน</h2></div><span v-if="notifications.unreadCount" class="notification-badge">{{ notifications.unreadCount }} ยังไม่อ่าน</span></div><div v-if="notifications.loading" class="loading-state">กำลังโหลดการแจ้งเตือน…</div><p v-else-if="notifications.error" class="form-error">{{ notifications.error }}</p><div v-else-if="notifications.items.length" class="notification-list"><article v-for="notification in notifications.items" :key="notification.id" class="notification-card" :class="{ 'notification-card--unread': !notification.isRead }"><div><h3>{{ notification.title }}</h3><p>{{ notification.message }}</p><small>{{ formatDate(notification.createdAt) }}</small></div><button class="button button--ghost button--small" type="button" :disabled="notification.isRead" @click="notifications.markRead(notification.id)">{{ notification.isRead ? 'อ่านแล้ว' : 'ทำเครื่องหมายว่าอ่านแล้ว' }}</button></article></div><div v-else class="empty-state empty-state--compact"><h3>ยังไม่มีการแจ้งเตือน</h3><p>ผลการตรวจสอบเอกสารจะปรากฏที่นี่</p></div></section></section></template>

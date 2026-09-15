@@ -16,7 +16,7 @@ describe('Course hierarchy home', () => {
     await flushPromises()
     expect(courses).toHaveBeenCalledOnce()
     expect(wrapper.text()).toContain('CS201')
-    expect(wrapper.text()).toContain('3 documents')
+    expect(wrapper.text()).toContain('3 เอกสาร')
     expect(wrapper.text()).toContain('Algorithm')
   })
 
@@ -24,7 +24,7 @@ describe('Course hierarchy home', () => {
     const wrapper = mount(DocumentCatalogPanel, { props: { documentType: 'Lecture', basePath: '/dashboard/lec' }, global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
     await flushPromises()
     expect(courses).toHaveBeenCalledWith('Lecture')
-    expect(wrapper.text()).toContain('Lectures')
-    expect(wrapper.text()).toContain('3 Lecture files')
+    expect(wrapper.text()).toContain('เอกสารการสอน')
+    expect(wrapper.text()).toContain('3 เอกสาร')
   })
 })

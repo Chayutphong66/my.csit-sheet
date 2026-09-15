@@ -3,6 +3,13 @@ import { db } from '../data/database.js'
 import { createLecture } from './lecture.repository.js'
 import { createLectureFile, lectureHasFile } from './lectureFile.repository.js'
 import { createSheetFile, sheetHasFile } from './sheetFile.repository.js'
+import { getOrCreateFileAsset } from './fileAsset.repository.js'
+import { calculateContentFingerprint } from '../services/contentFingerprint.service.js'
+import {
+  calculateContributionScore,
+  contributionBadges,
+  contributorLevel
+} from '../services/contributionScore.service.js'
 
 export function normalizeDocumentType(documentType) {
   const value = String(documentType ?? '').trim().toLowerCase()
@@ -18,10 +25,13 @@ export function normalizeTitle(title) {
 const requestSelect = `
   SELECT
     upload_requests.*,
-    users.username AS username,
+      users.username AS username,
+      COALESCE(NULLIF(users.display_name, ''), users.username) AS display_name,
+      users.avatar_url AS avatar_url,
     users.email AS email,
     admin.username AS decided_by_username,
-    CASE WHEN upload_requests.file_data IS NULL THEN 0 ELSE 1 END AS has_file
+    CASE WHEN upload_requests.status = 'COMPLETED' THEN 0
+         WHEN upload_requests.file_asset_id IS NOT NULL OR upload_requests.file_data IS NOT NULL THEN 1 ELSE 0 END AS has_file
   FROM upload_requests
   JOIN users ON users.id = upload_requests.user_id
   LEFT JOIN users admin ON admin.id = upload_requests.decided_by
@@ -32,7 +42,9 @@ function toUploadRequest(row) {
   return {
     id: row.id,
     userId: row.user_id,
-    username: row.username,
+      username: row.username,
+      displayName: row.display_name || row.username,
+      avatarUrl: row.avatar_url || '',
     email: row.email,
     lectureId: row.lecture_id,
     sheetId: row.sheet_id,
@@ -52,6 +64,8 @@ function toUploadRequest(row) {
     duplicateStatus: row.duplicate_status || 'NONE',
     rejectionType: row.rejection_type || 'STANDARD',
     fileHash: row.file_hash,
+    contentHash: row.content_hash || '',
+    fileAssetId: row.file_asset_id,
     rejectionReason: row.rejection_reason,
     decidedBy: row.decided_by,
     decidedByUsername: row.decided_by_username,
@@ -97,42 +111,43 @@ export function createUploadRequest({
   const instructor = instructorId ? findInstructorById(instructorId) : null
   const id = crypto.randomUUID()
   const fileHash = fileData ? crypto.createHash('sha256').update(Buffer.from(fileData)).digest('hex') : ''
+  const contentHash = fileData ? calculateContentFingerprint(fileData, fileType) : ''
   const normalizedTitle = normalizeTitle(title)
   const duplicateStatus = classifyDuplicate({
-    fileHash, courseId: course?.id ?? '', academicYear, semester, documentType, normalizedTitle
+    fileHash, contentHash, courseId: course?.id ?? '', academicYear, semester, documentType, normalizedTitle
   })
 
   // sheet_id and decided_by are nullable foreign keys. They must be inserted as
   // NULL (not the '' column default) until a sheet is created / an admin decides,
   // because SQLite validates a non-NULL FK value against the parent table and an
   // empty string matches no row -> "FOREIGN KEY constraint failed".
-  db.prepare(`
-    INSERT INTO upload_requests (
-      id, user_id, lecture_id, sheet_id, title, file_name, file_size, file_type, file_data, course_id, course_name,
-      document_type, academic_year, semester, upload_date, instructor_id, instructor_name,
-      file_hash, normalized_title, duplicate_status, status, decided_by
+  db.exec('BEGIN')
+  try {
+    const asset = fileData ? getOrCreateFileAsset({
+      binaryHash: fileHash,
+      contentHash,
+      originalFilename: fileName,
+      mimeType: fileType,
+      fileData
+    }) : null
+    db.prepare(`
+      INSERT INTO upload_requests (
+        id, user_id, lecture_id, sheet_id, title, file_name, file_size, file_type, file_data, file_asset_id,
+        course_id, course_name, document_type, academic_year, semester, upload_date, instructor_id, instructor_name,
+        file_hash, content_hash, normalized_title, duplicate_status, status, decided_by
+      )
+      VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', NULL)
+    `).run(
+      id, userId, title, fileName, Number(fileSize) || 0, fileType ?? '', asset?.id ?? null,
+      course?.id ?? '', course?.name ?? '', normalizeDocumentType(documentType) ?? 'Sheet', academicYear,
+      semester, uploadDate, instructor?.id ?? '', instructor?.name ?? '', fileHash, contentHash,
+      normalizedTitle, duplicateStatus
     )
-    VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', NULL)
-  `).run(
-    id,
-    userId,
-    title,
-    fileName,
-    Number(fileSize) || 0,
-    fileType ?? '',
-    fileData,
-    course?.id ?? '',
-    course?.name ?? '',
-    normalizeDocumentType(documentType) ?? 'Sheet',
-    academicYear,
-    semester,
-    uploadDate,
-    instructor?.id ?? '',
-    instructor?.name ?? '',
-    fileHash,
-    normalizedTitle,
-    duplicateStatus
-  )
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
 
   return findUploadRequestById(id)
 }
@@ -150,10 +165,46 @@ export function findContributionSummaryByUserId(userId, limit = 5) {
       SUM(CASE WHEN document_type = 'Lecture' THEN 1 ELSE 0 END) AS lectures,
       SUM(CASE WHEN document_type = 'Sheet' THEN 1 ELSE 0 END) AS sheets,
       SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) AS published,
+      SUM(CASE WHEN status = 'COMPLETED' AND rejection_type != 'DUPLICATE'
+        AND duplicate_status NOT IN ('EXACT_DUPLICATE', 'CONTENT_DUPLICATE') THEN 1 ELSE 0 END) AS rewarded_published,
       SUM(CASE WHEN status IN ('PENDING', 'PROCESSING', 'APPROVED') THEN 1 ELSE 0 END) AS pending,
       SUM(CASE WHEN status IN ('REJECTED', 'FAILED') THEN 1 ELSE 0 END) AS rejected
     FROM upload_requests WHERE user_id = ?
   `).get(userId)
+  const impact = db.prepare(`
+    WITH owned_documents(document_type, id, view_count, download_count) AS (
+      SELECT 'Lecture', id, view_count, download_count FROM lectures WHERE uploader_id = ? AND status = 'APPROVED'
+      UNION ALL
+      SELECT 'Sheet', id, view_count, download_count FROM sheets WHERE uploader_id = ? AND status = 'APPROVED'
+    )
+    SELECT COALESCE(SUM(view_count), 0) AS total_views,
+           COALESCE(SUM(download_count), 0) AS total_downloads,
+           (SELECT COUNT(*) FROM document_helpful_votes votes
+            JOIN owned_documents documents ON documents.document_type = votes.document_type AND documents.id = votes.document_id
+           ) AS helpful,
+           (SELECT COUNT(*) FROM document_interactions interactions
+            JOIN owned_documents documents ON documents.document_type = interactions.document_type AND documents.id = interactions.document_id
+            WHERE interactions.interaction_type = 'DOWNLOAD'
+           ) AS qualified_downloads
+    FROM owned_documents
+  `).get(userId, userId)
+  const recentImpactRows = db.prepare(`
+    SELECT lectures.source_request_id, 'Lecture' AS document_type, lectures.id AS document_id,
+           lectures.view_count, lectures.download_count,
+           (SELECT COUNT(*) FROM document_helpful_votes votes
+            WHERE votes.document_type = 'Lecture' AND votes.document_id = lectures.id) AS helpful_count
+    FROM lectures WHERE lectures.uploader_id = ? AND lectures.status = 'APPROVED'
+    UNION ALL
+    SELECT sheets.source_request_id, 'Sheet', sheets.id, sheets.view_count, sheets.download_count,
+           (SELECT COUNT(*) FROM document_helpful_votes votes
+            WHERE votes.document_type = 'Sheet' AND votes.document_id = sheets.id)
+    FROM sheets WHERE sheets.uploader_id = ? AND sheets.status = 'APPROVED'
+  `).all(userId, userId)
+  const impactByRequest = new Map(recentImpactRows.map((row) => [row.source_request_id, row]))
+  const published = Number(totals.rewarded_published || 0)
+  const qualifiedDownloads = Number(impact.qualified_downloads || 0)
+  const helpful = Number(impact.helpful || 0)
+  const contributionScore = calculateContributionScore({ published, qualifiedDownloads, helpful })
   return {
     total: Number(totals.total || 0),
     lectures: Number(totals.lectures || 0),
@@ -161,7 +212,22 @@ export function findContributionSummaryByUserId(userId, limit = 5) {
     published: Number(totals.published || 0),
     pending: Number(totals.pending || 0),
     rejected: Number(totals.rejected || 0),
-    recent: findUploadRequestsByUserId(userId).slice(0, limit)
+    totalViews: Number(impact.total_views || 0),
+    totalDownloads: Number(impact.total_downloads || 0),
+    helpful,
+    contributionScore,
+    contributorLevel: contributorLevel(contributionScore),
+    badges: contributionBadges({ published, qualifiedDownloads, helpful }),
+    recent: findUploadRequestsByUserId(userId).slice(0, limit).map((request) => {
+      const row = impactByRequest.get(request.id)
+      return {
+        ...request,
+        publicDocumentId: row?.document_id ?? request.lectureId ?? request.sheetId ?? null,
+        views: Number(row?.view_count || 0),
+        downloads: Number(row?.download_count || 0),
+        helpful: Number(row?.helpful_count || 0)
+      }
+    })
   }
 }
 
@@ -171,10 +237,17 @@ export function findUploadRequestById(id) {
 
 export function findUploadRequestFileById(id) {
   const row = db
-    .prepare('SELECT file_name, file_type, file_data FROM upload_requests WHERE id = ?')
+    .prepare(`
+      SELECT upload_requests.file_name, upload_requests.file_type,
+             COALESCE(file_assets.file_data, upload_requests.file_data) AS file_data,
+             upload_requests.file_asset_id
+      FROM upload_requests
+      LEFT JOIN file_assets ON file_assets.id = upload_requests.file_asset_id
+      WHERE upload_requests.id = ?
+    `)
     .get(id)
   if (!row) return null
-  return { fileName: row.file_name, fileType: row.file_type, fileData: row.file_data }
+  return { fileName: row.file_name, fileType: row.file_type, fileData: row.file_data, fileAssetId: row.file_asset_id }
 }
 
 export function findAllUploadRequests() {
@@ -191,6 +264,7 @@ export function findDuplicateMatches(requestOrId) {
   const params = {
     id: request.id,
     hash: request.fileHash || '',
+    contentHash: request.contentHash || '',
     courseId: request.courseId || '',
     year: request.academicYear || '',
     semester: request.semester || '',
@@ -198,45 +272,80 @@ export function findDuplicateMatches(requestOrId) {
     title: normalizeTitle(request.title)
   }
   const rows = db.prepare(`
-    SELECT 'REQUEST' AS source, id, title, file_name AS file_name, document_type AS document_type,
-           status, file_hash, course_id, academic_year, semester, normalized_title
-    FROM upload_requests
-    WHERE id != @id AND status = 'PENDING'
-      AND ((@hash != '' AND file_hash = @hash) OR
+    SELECT 'REQUEST' AS source, requests.id, requests.title, requests.file_name,
+           requests.document_type, requests.status, requests.file_hash, requests.content_hash,
+           requests.course_id, courses.code AS course_code, requests.course_name,
+           requests.academic_year, requests.semester, requests.normalized_title,
+           users.username AS contributor, requests.created_at AS occurred_at,
+           NULL AS public_document_id
+    FROM upload_requests requests
+    JOIN users ON users.id = requests.user_id
+    LEFT JOIN courses ON courses.id = requests.course_id
+    WHERE requests.id != @id AND requests.status = 'PENDING'
+      AND ((@hash != '' AND requests.file_hash = @hash) OR
+        (@contentHash != '' AND requests.content_hash = @contentHash) OR
         (course_id = @courseId AND academic_year = @year AND semester = @semester
          AND document_type = @type AND normalized_title = @title))
     UNION ALL
-    SELECT 'LECTURE', id, title, file_name, 'Lecture', status, file_hash, course_id, academic_year, semester, normalized_title
+    SELECT 'LECTURE', lectures.id, lectures.title, COALESCE(lecture_files.original_filename, lectures.file_name),
+           'Lecture', lectures.status, lectures.file_hash, lectures.content_hash,
+           lectures.course_id, courses.code, courses.name, lectures.academic_year, lectures.semester,
+           lectures.normalized_title, users.username, lectures.created_at, lectures.id
     FROM lectures
-    WHERE status = 'APPROVED'
-      AND ((@hash != '' AND file_hash = @hash) OR
-        (@type = 'Lecture' AND course_id = @courseId AND academic_year = @year
-         AND semester = @semester AND normalized_title = @title))
+    LEFT JOIN lecture_files ON lecture_files.lecture_id = lectures.id
+    LEFT JOIN users ON users.id = lectures.uploader_id
+    LEFT JOIN courses ON courses.id = lectures.course_id
+    WHERE lectures.status = 'APPROVED'
+      AND ((@hash != '' AND lectures.file_hash = @hash) OR
+        (@contentHash != '' AND lectures.content_hash = @contentHash) OR
+        (@type = 'Lecture' AND lectures.course_id = @courseId AND lectures.academic_year = @year
+         AND lectures.semester = @semester AND lectures.normalized_title = @title))
     UNION ALL
     SELECT 'SHEET', sheets.id, sheets.title, COALESCE(sheet_files.original_filename, ''), 'Sheet', sheets.status,
-           sheets.file_hash, sheets.course_id, sheets.academic_year, sheets.semester, sheets.normalized_title
-    FROM sheets LEFT JOIN sheet_files ON sheet_files.sheet_id = sheets.id
+           sheets.file_hash, sheets.content_hash, sheets.course_id, courses.code, courses.name,
+           sheets.academic_year, sheets.semester, sheets.normalized_title, users.username, sheets.created_at, sheets.id
+    FROM sheets
+    LEFT JOIN sheet_files ON sheet_files.sheet_id = sheets.id
+    LEFT JOIN users ON users.id = sheets.uploader_id
+    LEFT JOIN courses ON courses.id = sheets.course_id
     WHERE sheets.status = 'APPROVED'
       AND ((@hash != '' AND sheets.file_hash = @hash) OR
+        (@contentHash != '' AND sheets.content_hash = @contentHash) OR
         (@type = 'Sheet' AND sheets.course_id = @courseId AND sheets.academic_year = @year AND sheets.semester = @semester
          AND sheets.normalized_title = @title))
   `).all(params)
-  return rows.map((row) => ({
-    source: row.source,
-    id: row.id,
-    title: row.title,
-    fileName: row.file_name,
-    documentType: row.document_type,
-    status: row.status,
-    matchType: params.hash && row.file_hash === params.hash ? 'EXACT_DUPLICATE' : 'POSSIBLE_DUPLICATE'
-  }))
+  return rows.map((row) => {
+    const binaryMatch = Boolean(params.hash && row.file_hash === params.hash)
+    const contentMatch = Boolean(params.contentHash && row.content_hash === params.contentHash)
+    return {
+      source: row.source,
+      id: row.id,
+      title: row.title,
+      fileName: row.file_name,
+      documentType: row.document_type,
+      status: row.status,
+      courseId: row.course_id,
+      courseCode: row.course_code,
+      courseName: row.course_name,
+      academicYear: row.academic_year,
+      semester: row.semester,
+      contributor: row.contributor,
+      occurredAt: row.occurred_at,
+      publicDocumentId: row.public_document_id,
+      binaryMatch,
+      contentMatch,
+      matchType: binaryMatch ? 'EXACT_DUPLICATE' : contentMatch ? 'CONTENT_DUPLICATE' : 'POSSIBLE_DUPLICATE'
+    }
+  })
 }
 
 function classifyDuplicate(candidate) {
   const matches = findDuplicateMatches({ id: '', title: candidate.normalizedTitle, fileHash: candidate.fileHash,
+    contentHash: candidate.contentHash,
     courseId: candidate.courseId, academicYear: candidate.academicYear, semester: candidate.semester,
     documentType: candidate.documentType })
   if (matches.some((match) => match.matchType === 'EXACT_DUPLICATE')) return 'EXACT_DUPLICATE'
+  if (matches.some((match) => match.matchType === 'CONTENT_DUPLICATE')) return 'CONTENT_DUPLICATE'
   if (matches.length) return 'POSSIBLE_DUPLICATE'
   return 'NONE'
 }
@@ -357,6 +466,7 @@ export function publishUploadRequest(id, { adminId = '' } = {}) {
             courseId: request.courseId || '',
             semester: request.semester || '',
             fileHash: request.fileHash || '',
+            contentHash: request.contentHash || '',
             uploaderId: request.userId,
             fileName: request.fileName || '',
             sourceRequestId: id
@@ -368,7 +478,8 @@ export function publishUploadRequest(id, { adminId = '' } = {}) {
           originalFilename: file.fileName || request.fileName || 'download',
           mimeType: file.fileType || request.fileType || 'application/octet-stream',
           fileSize: request.fileSize,
-          fileData: file.fileData
+          fileAssetId: file.fileAssetId,
+          fileData: Buffer.alloc(0)
         })
       }
       db.prepare(
@@ -388,10 +499,10 @@ export function publishUploadRequest(id, { adminId = '' } = {}) {
         db.prepare(`
           INSERT INTO sheets (
             id, title, subject, status, created_at, download_count, uploader_id, reject_reason, source_request_id,
-            course_id, academic_year, semester, normalized_title, file_hash, updated_at
-          ) VALUES (?, ?, ?, 'APPROVED', CURRENT_TIMESTAMP, 0, ?, '', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            course_id, academic_year, semester, normalized_title, file_hash, content_hash, view_count, updated_at
+          ) VALUES (?, ?, ?, 'APPROVED', CURRENT_TIMESTAMP, 0, ?, '', ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
         `).run(sheetId, request.title, subject, request.userId, id, request.courseId || '', request.academicYear || '',
-          request.semester || '', normalizeTitle(request.title), request.fileHash || '')
+          request.semester || '', normalizeTitle(request.title), request.fileHash || '', request.contentHash || '')
       }
       if (!existing?.hasFile) {
         createSheetFile({
@@ -400,7 +511,8 @@ export function publishUploadRequest(id, { adminId = '' } = {}) {
           originalFilename: file.fileName || request.fileName || 'download',
           mimeType: file.fileType || request.fileType || 'application/octet-stream',
           fileSize: request.fileSize,
-          fileData: file.fileData
+          fileAssetId: file.fileAssetId,
+          fileData: Buffer.alloc(0)
         })
       }
 

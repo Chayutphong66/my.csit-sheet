@@ -29,9 +29,9 @@ describe('My Uploads', () => {
     await flushPromises()
 
     expect(uploadRequests).toHaveBeenCalledOnce()
-    expect(wrapper.get('h1').text()).toBe('My Uploads')
+    expect(wrapper.get('h2').text()).toBe('การอัปโหลดของฉัน')
     expect(wrapper.text()).toContain('algorithms.pdf')
-    expect(wrapper.text()).toContain('Pending')
+    expect(wrapper.text()).toContain('รอตรวจสอบ')
     expect(wrapper.text()).not.toContain('Submit upload')
   })
 })

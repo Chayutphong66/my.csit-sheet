@@ -2,8 +2,7 @@ import {
   findSheetsByUploaderId,
   findRecommendedSheets,
   findApprovedSheets,
-  findSheetById,
-  incrementSheetDownloadCount
+  findSheetById
 } from '../repositories/sheet.repository.js'
 import {
   createUploadRequest,
@@ -23,6 +22,7 @@ import {
   markNotificationRead
 } from '../repositories/notification.repository.js'
 import { decodeUploadedFile, validateUploadPayload } from '../services/uploadValidation.service.js'
+import { recordDocumentInteraction } from '../repositories/communityInteraction.repository.js'
 
 function publicSheet(sheet) {
   const { uploaderId, uploaderEmail, rejectReason, sourceRequestId, ...safeSheet } = sheet
@@ -64,7 +64,11 @@ export function getSheetFile(req, res, next) {
       throw error
     }
 
-    incrementSheetDownloadCount(sheet.id)
+    recordDocumentInteraction({
+      userId: req.user.id,
+      document: { id: sheet.id, documentType: 'Sheet', uploaderId: sheet.uploaderId },
+      interactionType: 'DOWNLOAD'
+    })
 
     const buffer = Buffer.from(file.fileData)
     res.setHeader('Content-Type', file.mimeType || 'application/octet-stream')

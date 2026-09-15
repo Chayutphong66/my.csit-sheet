@@ -5,6 +5,7 @@ function toUser(row) {
   return {
     id: row.id,
     username: row.username,
+    displayName: row.display_name || row.username,
     email: row.email,
     password: row.password,
     role: row.role,
@@ -27,11 +28,12 @@ export function findUserById(id) {
 
 export function createUser(user) {
   db.prepare(`
-    INSERT INTO users (id, username, email, password, role, avatar_url, is_verified, provider)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO users (id, username, display_name, email, password, role, avatar_url, is_verified, provider)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     user.id,
     user.username,
+    user.displayName || user.username,
     user.email,
     user.password,
     user.role,
@@ -54,6 +56,6 @@ export function countUsers() {
 
 export function listUsers() {
   return db
-    .prepare('SELECT id, username, email, role FROM users ORDER BY username')
+    .prepare('SELECT id, username, display_name AS displayName, email, role FROM users ORDER BY username')
     .all()
 }

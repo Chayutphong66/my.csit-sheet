@@ -17,6 +17,7 @@ import CourseYearPanel from '@/components/user/CourseYearPanel.vue'
 import DocumentSearchPanel from '@/components/user/DocumentSearchPanel.vue'
 import DocumentCatalogPanel from '@/components/user/DocumentCatalogPanel.vue'
 import UserUploadPanel from '@/components/user/UserUploadPanel.vue'
+import PublicProfilePanel from '@/components/user/PublicProfilePanel.vue'
 
 const routes = [
   { path: '/', name: 'home', component: LandingView },
@@ -41,7 +42,8 @@ const routes = [
       { path: 'upload', name: 'user-upload', component: UserUploadPanel },
       { path: 'requests', redirect: { name: 'user-upload' } },
       { path: 'notifications', redirect: { name: 'user-profile' } },
-      { path: 'profile', name: 'user-profile', component: UserProfilePanel }
+      { path: 'profile', name: 'user-profile', component: UserProfilePanel },
+      { path: 'users/:username', name: 'public-profile', component: PublicProfilePanel }
     ]
   },
   {
@@ -49,7 +51,7 @@ const routes = [
     component: AdminDashboardView,
     meta: { requiresAuth: true, role: 'ADMIN' },
     children: [
-      { path: '', name: 'admin', redirect: { name: 'admin-request' } },
+      { path: '', name: 'admin', redirect: { name: 'admin-dashboard' } },
       { path: 'request', name: 'admin-request', component: AdminRequestPanel },
       { path: 'upload', name: 'admin-upload', component: AdminUploadPanel },
       { path: 'status', name: 'admin-status', component: AdminStatusPanel },
