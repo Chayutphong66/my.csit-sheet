@@ -20,6 +20,9 @@ export const sheetApi = {
   mine: () => request({ url: '/sheets/mine' }),
   all: () => request({ url: '/sheets/all' }),
   metadata: () => request({ url: '/sheets/metadata' }),
+  searchCourses: ({ query, program, year, semester }) => request({ url: `/catalog/courses?q=${encodeURIComponent(query)}&program=${encodeURIComponent(program)}&year=${encodeURIComponent(year)}&semester=${encodeURIComponent(semester)}` }),
+  teachers: (courseId, year, semester, program = '') => request({ url: `/catalog/courses/${encodeURIComponent(courseId)}/teachers?year=${encodeURIComponent(year)}&semester=${encodeURIComponent(semester)}&program=${encodeURIComponent(program)}` }),
+  suggestTeacher: (data) => request({ url: '/teacher-suggestions', method: 'POST', data }),
   catalog: (type) => request({ url: `/sheets/catalog?type=${encodeURIComponent(type ?? '')}` }),
   // Download an approved sheet's stored file (available to any signed-in user).
   downloadFile: (id) =>

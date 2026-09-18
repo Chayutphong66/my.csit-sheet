@@ -24,21 +24,33 @@ export function normalizeTitle(title) {
 
 const requestSelect = `
   SELECT
-    upload_requests.*,
+    upload_requests.id, upload_requests.user_id, upload_requests.lecture_id, upload_requests.sheet_id,
+    upload_requests.title, upload_requests.description, upload_requests.program_id, upload_requests.file_name, upload_requests.file_size, upload_requests.file_type,
+    upload_requests.course_id, upload_requests.course_name, upload_requests.document_type,
+    upload_requests.academic_year, upload_requests.semester, upload_requests.upload_date,
+    upload_requests.instructor_id, upload_requests.instructor_name, upload_requests.course_offering_id, upload_requests.status,
+    upload_requests.duplicate_status, upload_requests.rejection_type, upload_requests.file_hash,
+    upload_requests.content_hash, upload_requests.file_asset_id, upload_requests.rejection_reason,
+    upload_requests.decided_by, upload_requests.decided_at, upload_requests.created_at,
+    upload_requests.updated_at, upload_requests.completed_at,
       users.username AS username,
       COALESCE(NULLIF(users.display_name, ''), users.username) AS display_name,
       users.avatar_url AS avatar_url,
     users.email AS email,
     admin.username AS decided_by_username,
+    programs.code AS program_code, programs.name_th AS program_name_th, programs.name_en AS program_name_en,
     CASE WHEN upload_requests.status = 'COMPLETED' THEN 0
          WHEN upload_requests.file_asset_id IS NOT NULL OR upload_requests.file_data IS NOT NULL THEN 1 ELSE 0 END AS has_file
   FROM upload_requests
   JOIN users ON users.id = upload_requests.user_id
   LEFT JOIN users admin ON admin.id = upload_requests.decided_by
+  LEFT JOIN programs ON programs.id = upload_requests.program_id
 `
 
 function toUploadRequest(row) {
   if (!row) return null
+  const teachers = db.prepare(`SELECT instructors.id,instructors.name FROM upload_request_teachers link JOIN instructors ON instructors.id=link.teacher_id WHERE link.upload_request_id=? ORDER BY instructors.name`).all(row.id)
+  const teacherSuggestions = db.prepare(`SELECT id,teacher_name teacherName,suggestion_type suggestionType,note,status,approval_scope approvalScope FROM teacher_suggestions WHERE upload_request_id=? ORDER BY created_at`).all(row.id)
   return {
     id: row.id,
     userId: row.user_id,
@@ -49,6 +61,10 @@ function toUploadRequest(row) {
     lectureId: row.lecture_id,
     sheetId: row.sheet_id,
     title: row.title,
+    description: row.description || '',
+    programId: row.program_id || null,
+    programCode: row.program_code || '',
+    programName: row.program_name_th || row.program_name_en || '',
     fileName: row.file_name,
     fileSize: row.file_size,
     fileType: row.file_type,
@@ -60,6 +76,9 @@ function toUploadRequest(row) {
     uploadDate: row.upload_date,
     instructorId: row.instructor_id,
     instructorName: row.instructor_name,
+    teachers,
+    teacherSuggestions,
+    courseOfferingId: row.course_offering_id,
     status: row.status,
     duplicateStatus: row.duplicate_status || 'NONE',
     rejectionType: row.rejection_type || 'STANDARD',
@@ -105,10 +124,17 @@ export function createUploadRequest({
   academicYear = '',
   semester = '',
   uploadDate = '',
-  instructorId = ''
+  instructorId = '',
+  instructorIds = null,
+  courseOfferingId = null,
+  programId = null,
+  description = '',
+  suggestionIds = []
 }) {
   const course = courseId ? findCourseById(courseId) : null
-  const instructor = instructorId ? findInstructorById(instructorId) : null
+  const teacherIds = [...new Set((instructorIds || (instructorId ? [instructorId] : [])).filter(Boolean))]
+  const instructors = teacherIds.map(findInstructorById).filter(Boolean)
+  const instructor = instructors[0] || null
   const id = crypto.randomUUID()
   const fileHash = fileData ? crypto.createHash('sha256').update(Buffer.from(fileData)).digest('hex') : ''
   const contentHash = fileData ? calculateContentFingerprint(fileData, fileType) : ''
@@ -133,16 +159,25 @@ export function createUploadRequest({
     db.prepare(`
       INSERT INTO upload_requests (
         id, user_id, lecture_id, sheet_id, title, file_name, file_size, file_type, file_data, file_asset_id,
-        course_id, course_name, document_type, academic_year, semester, upload_date, instructor_id, instructor_name,
+        course_id, course_name, document_type, academic_year, semester, upload_date, instructor_id, instructor_name, course_offering_id, program_id, description,
         file_hash, content_hash, normalized_title, duplicate_status, status, decided_by
       )
-      VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', NULL)
-    `).run(
-      id, userId, title, fileName, Number(fileSize) || 0, fileType ?? '', asset?.id ?? null,
-      course?.id ?? '', course?.name ?? '', normalizeDocumentType(documentType) ?? 'Sheet', academicYear,
-      semester, uploadDate, instructor?.id ?? '', instructor?.name ?? '', fileHash, contentHash,
-      normalizedTitle, duplicateStatus
-    )
+      VALUES (@id, @userId, NULL, NULL, @title, @fileName, @fileSize, @fileType, NULL, @assetId,
+        @courseId, @courseName, @documentType, @academicYear, @semester, @uploadDate, @instructorId, @instructorName,
+        @courseOfferingId, @programId, @description, @fileHash, @contentHash, @normalizedTitle, @duplicateStatus, 'PENDING', NULL)
+    `).run({ id, userId, title, fileName, fileSize: Number(fileSize) || 0, fileType: fileType ?? '', assetId: asset?.id ?? null,
+      courseId: course?.id ?? '', courseName: course?.name ?? '', documentType: normalizeDocumentType(documentType) ?? 'Sheet', academicYear,
+      semester, uploadDate, instructorId: instructor?.id ?? '', instructorName: instructors.map(item => item.name).join(', '), courseOfferingId,
+      programId, description, fileHash, contentHash, normalizedTitle, duplicateStatus })
+    const addTeacher = db.prepare('INSERT OR IGNORE INTO upload_request_teachers(upload_request_id,teacher_id) VALUES(?,?)')
+    for (const teacher of instructors) addTeacher.run(id, teacher.id)
+    if (suggestionIds.length) {
+      const attachSuggestion = db.prepare(`UPDATE teacher_suggestions SET upload_request_id=? WHERE id=? AND submitted_by_user_id=? AND status='PENDING' AND upload_request_id IS NULL AND course_id=? AND academic_year=? AND semester=?`)
+      for (const suggestionId of suggestionIds) {
+        const result = attachSuggestion.run(id, suggestionId, userId, course?.id || '', academicYear, semester)
+        if (!result.changes) throw new Error('Invalid or unrelated teacher suggestion')
+      }
+    }
     db.exec('COMMIT')
   } catch (error) {
     db.exec('ROLLBACK')
@@ -376,10 +411,11 @@ export function updateUploadRequestCategory({
   instructorId
 }) {
   const course = findCourseById(courseId)
-  const instructor = findInstructorById(instructorId)
+  const instructor = instructorId ? findInstructorById(instructorId) : null
+  const offering = instructor ? db.prepare(`SELECT offerings.id FROM course_offerings offerings JOIN course_offering_teachers link ON link.offering_id=offerings.id WHERE offerings.course_id=? AND offerings.academic_year=? AND offerings.semester=? AND link.teacher_id=? LIMIT 1`).get(courseId, academicYear, semester, instructorId) : null
   const normalizedType = normalizeDocumentType(documentType)
 
-  if (!course || !instructor || !normalizedType) return null
+  if (!course || !normalizedType || (instructorId && (!instructor || !offering))) return null
 
   const result = db
     .prepare(`
@@ -391,10 +427,11 @@ export function updateUploadRequestCategory({
           semester = ?,
           instructor_id = ?,
           instructor_name = ?,
+          course_offering_id = ?,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `)
-    .run(course.id, course.name, normalizedType, academicYear, semester, instructor.id, instructor.name, id)
+    .run(course.id, course.name, normalizedType, academicYear, semester, instructor?.id || '', instructor?.name || '', offering?.id || null, id)
 
   return result.changes > 0 ? findUploadRequestById(id) : null
 }
@@ -461,7 +498,7 @@ export function publishUploadRequest(id, { adminId = '' } = {}) {
             title: request.title,
             subject,
             instructor: request.instructorName || '',
-            description: '',
+            description: request.description || '',
             academicYear: request.academicYear || '',
             courseId: request.courseId || '',
             semester: request.semester || '',
@@ -482,6 +519,13 @@ export function publishUploadRequest(id, { adminId = '' } = {}) {
           fileData: Buffer.alloc(0)
         })
       }
+      db.prepare('UPDATE lectures SET instructor_id = ?, course_offering_id = ? WHERE id = ?')
+        .run(request.instructorId || null, request.courseOfferingId || null, lecture.id)
+      db.prepare('UPDATE lectures SET program_id=? WHERE id=?').run(request.programId, lecture.id)
+      const copyLectureTeacher = db.prepare(`INSERT OR IGNORE INTO document_teachers(id,document_type,document_id,teacher_id,display_name) VALUES(?,'Lecture',?,?,?)`)
+      for (const teacher of request.teachers) copyLectureTeacher.run(crypto.randomUUID(), lecture.id, teacher.id, teacher.name)
+      const approvedLectureSuggestions = db.prepare(`SELECT id,teacher_name,existing_teacher_id FROM teacher_suggestions WHERE upload_request_id=? AND status='APPROVED'`).all(id)
+      for (const suggestion of approvedLectureSuggestions) db.prepare(`INSERT OR IGNORE INTO document_teachers(id,document_type,document_id,teacher_id,display_name,source_suggestion_id) VALUES(?,'Lecture',?,?,?,?)`).run(crypto.randomUUID(), lecture.id, suggestion.existing_teacher_id, suggestion.teacher_name, suggestion.id)
       db.prepare(
         `UPDATE upload_requests
          SET status = 'COMPLETED',
@@ -499,11 +543,17 @@ export function publishUploadRequest(id, { adminId = '' } = {}) {
         db.prepare(`
           INSERT INTO sheets (
             id, title, subject, status, created_at, download_count, uploader_id, reject_reason, source_request_id,
-            course_id, academic_year, semester, normalized_title, file_hash, content_hash, view_count, updated_at
-          ) VALUES (?, ?, ?, 'APPROVED', CURRENT_TIMESTAMP, 0, ?, '', ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+            course_id, academic_year, semester, normalized_title, file_hash, content_hash, view_count, updated_at,
+            instructor_id, course_offering_id, program_id, description
+          ) VALUES (?, ?, ?, 'APPROVED', CURRENT_TIMESTAMP, 0, ?, '', ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, ?, ?, ?, ?)
         `).run(sheetId, request.title, subject, request.userId, id, request.courseId || '', request.academicYear || '',
-          request.semester || '', normalizeTitle(request.title), request.fileHash || '', request.contentHash || '')
+          request.semester || '', normalizeTitle(request.title), request.fileHash || '', request.contentHash || '',
+          request.instructorId || null, request.courseOfferingId || null, request.programId, request.description || '')
       }
+      const copySheetTeacher = db.prepare(`INSERT OR IGNORE INTO document_teachers(id,document_type,document_id,teacher_id,display_name) VALUES(?,'Sheet',?,?,?)`)
+      for (const teacher of request.teachers) copySheetTeacher.run(crypto.randomUUID(), sheetId, teacher.id, teacher.name)
+      const approvedSheetSuggestions = db.prepare(`SELECT id,teacher_name,existing_teacher_id FROM teacher_suggestions WHERE upload_request_id=? AND status='APPROVED'`).all(id)
+      for (const suggestion of approvedSheetSuggestions) db.prepare(`INSERT OR IGNORE INTO document_teachers(id,document_type,document_id,teacher_id,display_name,source_suggestion_id) VALUES(?,'Sheet',?,?,?,?)`).run(crypto.randomUUID(), sheetId, suggestion.existing_teacher_id, suggestion.teacher_name, suggestion.id)
       if (!existing?.hasFile) {
         createSheetFile({
           sheetId,

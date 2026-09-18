@@ -5,7 +5,7 @@ import UserUploadPanel from '@/components/user/UserUploadPanel.vue'
 
 describe('Upload page', () => {
   it('keeps the upload form and history in one Thai-first page', async () => {
-    const wrapper = mount(UserUploadPanel, { global: { stubs: {
+    const wrapper = mount(UserUploadPanel, { attachTo: document.body, global: { stubs: {
       DocumentUploadForm: { template: '<form data-test="upload-form" />' },
       UserRequestsPanel: { props: ['embedded'], template: '<div data-test="history">History</div>' }
     } } })
@@ -15,5 +15,12 @@ describe('Upload page', () => {
     await historyButton.trigger('click')
     expect(wrapper.get('[data-test="history"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="upload-form"]').exists()).toBe(false)
+    await historyButton.trigger('keydown', { key: 'Home' })
+    expect(wrapper.get('[role="tabpanel"]').attributes('aria-labelledby')).toBe('upload-tab-material')
+    expect(document.activeElement.id).toBe('upload-tab-material')
+    await wrapper.get('#upload-tab-material').trigger('keydown', { key: 'ArrowRight' })
+    expect(wrapper.get('[role="tabpanel"]').attributes('aria-labelledby')).toBe('upload-tab-history')
+    expect(document.activeElement.id).toBe('upload-tab-history')
+    wrapper.unmount()
   })
 })

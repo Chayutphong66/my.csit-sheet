@@ -23,6 +23,10 @@ const insertActor = db.prepare(`
 insertActor.run('actor-user-1', 'user1', 'user1@example.test', hashPassword('User@1234'), 'USER')
 insertActor.run('actor-user-2', 'user2', 'user2@example.test', hashPassword('User@1234'), 'USER')
 insertActor.run('actor-admin-1', 'admin1', 'admin1@example.test', hashPassword('Admin@1234'), 'ADMIN')
+db.prepare("INSERT OR IGNORE INTO courses(id,name,code,description) VALUES('c1','Fixture Course','FIX101','Integration fixture')").run()
+db.prepare("INSERT OR IGNORE INTO instructors(id,name,normalized_name,active) VALUES('i1','Fixture Teacher','fixture teacher',1)").run()
+db.prepare("INSERT OR IGNORE INTO course_offerings(id,course_id,academic_year,semester,section) VALUES('offering-c1-2569-1','c1','2569','1','')").run()
+db.prepare("INSERT OR IGNORE INTO course_offering_teachers(offering_id,teacher_id) VALUES('offering-c1-2569-1','i1')").run()
 
 const server = app.listen(0)
 const baseUrl = `http://127.0.0.1:${server.address().port}/api`
@@ -78,7 +82,7 @@ function uploadPayload({ title, fileName, contents, documentType }) {
     fileData: Buffer.from(contents).toString('base64'),
     courseId: 'c1',
     documentType,
-    academicYear: '2026',
+    academicYear: '2569',
     semester: '1',
     instructorId: 'i1'
   }
@@ -91,7 +95,7 @@ async function approve(requestId, adminToken, documentType) {
     body: {
       courseId: 'c1',
       documentType,
-      academicYear: '2026',
+      academicYear: '2569',
       semester: '1',
       instructorId: 'i1'
     }
@@ -448,7 +452,7 @@ test('TEST-09 user2 cannot access Admin approval API', async () => {
     body: {
       courseId: 'c1',
       documentType: 'Lecture',
-      academicYear: '2026',
+      academicYear: '2569',
       semester: '1',
       instructorId: 'i1'
     }
@@ -493,12 +497,13 @@ test('TEST-10 Lecture never leaks into Sheet search and Sheet never leaks into L
   assert.equal(JSON.stringify(sheetCatalog.data).includes(lectureTitle), false)
 })
 
-test('seeded catalog records still render without files', async () => {
+test('legacy catalog records still render without files', async () => {
   const user2Token = await login('user2')
+  db.prepare("INSERT OR IGNORE INTO lectures(id,title,subject,instructor,description,academic_year,status,uploader_id,file_name,created_at) VALUES('legacy-no-file','Legacy lecture','Legacy','','','2567','APPROVED','2','',CURRENT_TIMESTAMP)").run()
   const sheets = await api('/sheets/all', { token: user2Token })
   const lectures = await api('/lectures', { token: user2Token })
 
-  const seededLecture = lectures.data.find((lecture) => lecture.id === 'l1')
+  const seededLecture = lectures.data.find((lecture) => lecture.id === 'legacy-no-file')
   const seededSheet = sheets.data.find((sheet) => sheet.id === 's1')
   assert.ok(seededLecture)
   assert.ok(seededSheet)
@@ -513,6 +518,8 @@ test('three actors share dynamic Course hierarchy, search, inline view, download
   const user1Token = await login('user1')
   const user2Token = await login('user2')
   const title = 'Dynamic Hierarchy Lecture 2568'
+  db.prepare("INSERT OR IGNORE INTO course_offerings(id,course_id,academic_year,semester,section) VALUES('offering-c1-2568-2','c1','2568','2','')").run()
+  db.prepare("INSERT OR IGNORE INTO course_offering_teachers(offering_id,teacher_id) VALUES('offering-c1-2568-2','i1')").run()
   const upload = await api('/upload-requests', {
     method: 'POST', token: user1Token,
     body: { ...uploadPayload({ title, fileName: 'hierarchy-lecture.pdf', contents: '%PDF-hierarchy-2568', documentType: 'Lecture' }), academicYear: '2568', semester: '2' }
@@ -632,7 +639,7 @@ test('publication failure rolls back the material, published file, and request c
     body: {
       courseId: 'c1',
       documentType: 'Lecture',
-      academicYear: '2026',
+      academicYear: '2569',
       semester: '1',
       instructorId: 'i1'
     }
@@ -696,6 +703,10 @@ test('health check is minimal and does not require authentication', async () => 
   const result = await api('/health')
   assert.equal(result.response.status, 200)
   assert.deepEqual(result.data, { status: 'ok' })
+  const csp = result.response.headers.get('content-security-policy')
+  assert.ok(csp.includes("frame-src 'self' blob:"))
+  assert.ok(csp.includes("script-src 'self'"))
+  assert.ok(!csp.includes("script-src 'self' 'unsafe-inline'"))
 })
 
 test('contributor impact, Helpful, and score use unique non-owner interactions', async (context) => {
@@ -882,5 +893,39 @@ test('display-name migration is idempotent and backfills a usable public identit
   assert.ok(columns.includes('display_name'))
   const seededFallback = db.prepare('SELECT username, display_name FROM users WHERE username = ?').get('student01')
   assert.ok(seededFallback.display_name || seededFallback.username)
+  assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), [])
+})
+
+test('profile Stars persist once per type/account, private requests stay owner-only, and editing targets the actor', async () => {
+  const owner = await login('user1'); const reader = await login('user2')
+  const initial = await api('/contributors/user1', { token: owner })
+  const document = initial.data.documents[0]
+  assert.ok(document)
+  const pending = await api('/upload-requests', { method: 'POST', token: owner, body: uploadPayload({ title: 'Private profile request', fileName: 'private.pdf', contents: '%PDF-unique profile private content 12345', documentType: 'Sheet' }) })
+  assert.equal(pending.response.status, 201)
+  const own = await api('/contributors/user1', { token: owner })
+  const publicProfile = await api('/contributors/user1', { token: reader })
+  assert.equal(own.data.isOwner, true)
+  assert.ok(own.data.requests.some(request => request.title === 'Private profile request'))
+  assert.deepEqual(publicProfile.data.requests, [])
+  assert.ok(!JSON.stringify(publicProfile.data).includes('Private profile request'))
+  const endpoint = `/contributors/stars/${document.documentType}/${document.id}`
+  for (let index = 0; index < 2; index++) assert.equal((await api(endpoint, { method: 'PUT', token: reader, body: { starred: true } })).response.status, 200)
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM document_stars WHERE user_id = ? AND document_type = ? AND document_id = ?').get('actor-user-2', document.documentType, document.id).count, 1)
+  assert.ok((await api('/contributors/user2', { token: reader })).data.stars.some(item => item.id === document.id && item.documentType === document.documentType))
+  assert.deepEqual((await api('/contributors/user1', { token: owner })).data.stars, [])
+  assert.equal((await api(endpoint, { method: 'PUT', body: { starred: true } })).response.status, 401)
+  assert.equal((await api(endpoint, { method: 'PUT', token: reader, body: { starred: 'yes' } })).response.status, 400)
+  assert.equal((await api('/contributors/stars/Sheet/missing', { method: 'PUT', token: reader, body: { starred: true } })).response.status, 404)
+  const table = document.documentType === 'Sheet' ? 'sheets' : 'lectures'
+  db.prepare(`UPDATE ${table} SET status = 'REJECTED' WHERE id = ?`).run(document.id)
+  assert.ok(!(await api('/contributors/user2', { token: reader })).data.stars.some(item => item.id === document.id && item.documentType === document.documentType))
+  assert.equal((await api(endpoint, { method: 'PUT', token: reader, body: { starred: true } })).response.status, 404)
+  db.prepare(`UPDATE ${table} SET status = 'APPROVED' WHERE id = ?`).run(document.id)
+  await api(endpoint, { method: 'PUT', token: reader, body: { starred: false } })
+  assert.deepEqual((await api('/contributors/user2', { token: reader })).data.stars, [])
+  await api('/contributors/me', { method: 'PATCH', token: reader, body: { displayName: 'Reader edited', username: 'user1', role: 'ADMIN' } })
+  assert.equal((await api('/contributors/user2', { token: reader })).data.displayName, 'Reader edited')
+  assert.equal((await api('/contributors/user1', { token: owner })).data.displayName, initial.data.displayName)
   assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), [])
 })

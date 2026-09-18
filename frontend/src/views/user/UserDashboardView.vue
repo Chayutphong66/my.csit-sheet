@@ -12,6 +12,6 @@ const navItems = [
 
 <template>
   <DashboardShell role-label="ผู้ใช้งาน" :nav-items="navItems">
-    <RouterView />
+    <RouterView :key="['user-profile', 'public-profile'].includes($route.name) ? $route.path : $route.fullPath" />
   </DashboardShell>
 </template>

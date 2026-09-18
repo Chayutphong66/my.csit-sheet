@@ -19,7 +19,7 @@ async function search() {
   if (!term) { error.value = 'พิมพ์ชื่อเอกสาร รายวิชา หรือผู้แบ่งปันก่อนค้นหา'; return }
   loading.value = true; error.value = ''
   try {
-    const [documentResult, contributorResult] = await Promise.all([documentApi.search(term), contributorApi.search(term)])
+    const [documentResult, contributorResult] = await Promise.all([documentApi.search(term), contributorApi.search(term.replace(/^@/, ''))])
     documents.value = documentResult.documents
     contributors.value = contributorResult.contributors
     searched.value = true
@@ -50,7 +50,7 @@ async function helpful(document) { busy.value = document.id; try { const state =
         <div class="section-heading"><h2>เอกสาร</h2><span class="count-pill">{{ documents.length }} รายการ</span></div>
         <div v-if="documents.length" class="request-list">
           <article v-for="document in documents" :key="`${document.documentType}-${document.id}`" class="request-card document-card">
-            <div class="request-card__main"><span class="type-chip">{{ documentTypeLabel(document.documentType) }}</span><h3>{{ document.title }}</h3><p>{{ document.courseCode }} · {{ document.courseName }} · ปี {{ document.academicYear }} · เทอม {{ document.semester }}</p><RouterLink class="text-link" :to="`/dashboard/courses/${document.courseId}/years/${document.academicYear}`">ดูรายวิชา →</RouterLink></div>
+            <div class="request-card__main"><span class="type-chip">{{ documentTypeLabel(document.documentType) }}</span><h3>{{ document.title }}</h3><p v-if="document.description" class="document-description-preview">{{ document.description }}</p><p>{{ document.courseCode }} · {{ document.courseName }} · ปี {{ document.academicYear }} · เทอม {{ document.semester }}</p><p class="material-meta">{{ document.programName || 'ไม่ระบุสาขา' }} · ผู้สอน: {{ document.instructor || 'ยังไม่ทราบอาจารย์' }}</p><RouterLink class="text-link" :to="`/dashboard/courses/${document.courseId}/years/${document.academicYear}`">ดูรายวิชา →</RouterLink></div>
             <DocumentImpactActions :document="document" :busy="busy === document.id" @view="view(document)" @download="download(document)" @helpful="helpful(document)" />
           </article>
         </div>

@@ -20,7 +20,8 @@ function onScroll() {
 
 function goSection(id) {
   open.value = false
-  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  document.getElementById(id)?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth' })
 }
 
 async function logout() {
@@ -38,7 +39,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 
 <template>
   <header class="navbar" :class="{ 'navbar--solid': scrolled || open }">
-    <nav class="navbar__inner">
+    <nav class="navbar__inner" aria-label="เมนูหลัก CSIT Sheet">
       <RouterLink to="/" class="brand" @click="open = false">
         <span class="brand__mark">CS</span>
         <span>CSIT Sheet</span>
@@ -54,12 +55,12 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
         <button v-if="auth.user" class="button button--ghost" type="button" @click="logout">ออกจากระบบ</button>
       </div>
 
-      <button class="icon-button" type="button" aria-label="เปิดหรือปิดเมนู" @click="open = !open">
+      <button class="icon-button" type="button" aria-label="เปิดหรือปิดเมนู" :aria-expanded="open" aria-controls="starter-mobile-menu" @click="open = !open" @keydown.esc="open = false">
         {{ open ? 'ปิด' : 'เมนู' }}
       </button>
     </nav>
 
-    <div v-if="open" class="mobile-menu">
+    <div v-if="open" id="starter-mobile-menu" class="mobile-menu" @keydown.esc="open = false">
       <button v-for="item in navItems" :key="item.id" class="mobile-menu__item" type="button" @click="goSection(item.id)">
         {{ item.label }}
       </button>

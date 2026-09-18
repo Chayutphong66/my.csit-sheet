@@ -1,141 +1,187 @@
 # Code Review
 
+วันที่ตรวจ: 15 กันยายน 2026 — ปรับปรุง CSIT Sheet บนระบบเดิมตาม master prompt ปัจจุบัน ผล PASS ด้านล่างอ้างอิงคำสั่งและเบราว์เซอร์ที่รันจริงใน session นี้
+
 ## 1. สรุปภาพรวม
 
-CSIT Sheet ถูกต่อยอดใน repository เดิมเป็นแพลตฟอร์มแบ่งปันความรู้แบบ Thai-first โดยคง flow เดิมทั้งหมดและเพิ่ม public contributor discovery ที่ปลอดภัย ฝั่งผู้ใช้ได้ shell, discovery, cards, upload/history, own/public profile และ unified search ใหม่ ฝั่ง Admin เปลี่ยนจากตาราง action หนาแน่นเป็น Dashboard -> Queue -> Approval Workspace ที่โฟกัสทีละรายการ
+ปรับ Starter ใหม่ด้วย Thai editorial hero, labelled product preview, Bento, marquee, dark contribution section, community steps และ CTA ปรับ design tokens ทั้ง Starter/Auth/User/Admin เป็นพื้นกลาง ปุ่มดำ และม่วงจำกัด พร้อมแก้ async preview/profile race, stale typed-catalog SPA navigation, approval confirmation, pending duplicate file comparison, metadata BLOB projection และ CSP ที่บล็อก preview
 
-## 2. Architecture ที่พบ
+ระบบ Vue/Router/stores/API/Express/SQLite/auth/upload/publication/contribution/storage เดิมยังอยู่ ไม่มีแอปใหม่ ไม่มี static HTML replacement และไม่มี dependency ใหม่ ข้อมูลทดสอบอยู่ในฐาน SQLite และ browser profile ชั่วคราว ไม่ seed หรือ reset ฐานข้อมูลจริง
 
-คง Vue 3/Vite/Vue Router/Axios, Express 5, SQLite, JWT cookie/session, role/ownership middleware, repository/controller/service boundaries และ npm workspaces ไว้ `upload_requests` ยังเป็น submission source of truth และ Lecture/Sheet ยังแยก write model แต่ใช้ unified approved-document read model ร่วมกัน
+## 2. Architecture เดิมที่พบ
 
-เพิ่ม contributor read model โดยไม่สร้าง document หรือ contribution system คู่ขนาน ใช้ aggregate SQL แบบ set-based และ DTO whitelist สำหรับข้อมูลสาธารณะ
+npm workspaces; Vue 3.5, Vite 6, Vue Router, Axios; reactive auth/notification stores; Express 5 controllers/routes/middleware/services/repositories; SQLite ผ่าน node:sqlite; access JWT และ rotated refresh cookie; role/ownership guards
 
-## 3. UX/UI Renovation
+UploadRequest เป็น submission source of truth ขณะ publication เขียนลง Lecture/Sheet ตาม structured type และ public document repository รวม approved records สำหรับ Home/hierarchy/search/files/impact
 
-สร้าง Design System กลางใน `styles.css` ครบ semantic colors, Thai-capable typography, spacing, radius, border, shadow, icon/control size, layout width, breakpoints และ motion เปลี่ยนเป็นพื้น cream, near-black text, lime accent และ soft lavender/yellow/peach/green แบบจำกัด
+## 3. สิ่งที่เลือก Reuse
 
-แรงบันดาลใจจาก Passionfroot ถูกแปลงเป็นพื้นผิวโค้งมน จังหวะ whitespace ชัด คนและ metrics เป็น first-class object และ workflow ที่เริ่มจาก action โดยไม่คัดลอก logo, asset, copy หรือ layout แบบตรงตัว อ้างอิง public site/gallery/storefront/workspace guides ที่ระบุใน `AUDIT.md`
+ใช้ auth/refresh/logout/password migration, USER/ADMIN navigation, document/course hierarchy, upload validation/dropzone/history, shared UserIdentity/StatusBadge/ConfirmDialog, contributor APIs/profile, Helpful/score/levels/badges, duplicate classifier, FileAsset dedup/cleanup และ transaction/idempotency เดิม
 
-Card, form, tabs, status, empty/loading/error, dialog, navigation และ admin workspace ใช้ visual language เดียวกัน Hover/press/dialog/menu/skeleton ใช้ motion 160–240ms และ reduced motion ปิด motion ที่ไม่จำเป็น
+คง canonical `Lecture`/`Sheet` และ workflow status เดิม การแสดงภาษาไทยไม่เปลี่ยน enum ใน DB/API ผู้แบ่งปันไม่ได้ถูกเรียกว่า copyright owner
 
-## 4. ภาษาไทย / English
+## 4. สิ่งที่ Refactor
 
-Navigation, actions, forms, search, upload history, profile, admin queue, dialog และ states ใช้ภาษาไทยเป็นหลัก คำอย่าง Username, Admin, Badge, Preview, metadata, Exact/Content/Possible Duplicate คง English ในบริบทที่ชัดกว่า มี presentation mapping กลางสำหรับ document type, request status และ duplicate status โดย backend enums ไม่ถูกแปลหรือเปลี่ยนค่า
+- เปลี่ยน semantic tokens โดยรักษา class contracts และ components เดิม
+- key nested user RouterView ด้วย fullPath เพื่อให้ shared typed catalogs/course/year routes เริ่มข้อมูลใหม่เมื่อเปลี่ยนหน้า
+- discard preview/profile responses ที่หมดอายุหรือมาถึงหลัง unmount พร้อม revoke object URLs
+- ยืนยัน approval เช่นเดียวกับ rejection และจับ request ID ก่อนตัดสินใจ ป้องกัน busy/repeated decisions
+- แยก contributor downloads/votes CTE เพื่อลดจำนวนแถวที่ถูกคูณ และตัด legacy self rows ออกจาก reward
+- explicit projection ของ upload metadata แทน SELECT request.* ที่มี BLOB
+- รับ @username ใน UI search โดยนำ @ ออกเฉพาะ contributor query
 
-## 5. User Experience
+## 5. Database / Migration
 
-- Home: hero ชุมชน + course discovery และ dynamic approved counts
-- Lectures/Sheets: ใช้ hierarchy/API เดียวกันแต่ filter ตามชนิดอย่างชัดเจน
-- Course/Year/Semester: ใช้ข้อมูลจริง ไม่ hard-code ปีหรือภาคเรียน
-- Search: query เดียว แยก “ผู้แบ่งปัน” และ “เอกสาร”
-- Upload: form + drag/drop + validation + success/error และ history อยู่หน้าเดียวกัน
-- Profile: แยกข้อมูลบัญชีส่วนตัวออกจาก impact/recognition พร้อมลิงก์โปรไฟล์สาธารณะ
+รอบนี้ไม่เพิ่ม schema ใช้ migration/display_name backfill/index ที่มีอยู่แล้ว รัน migration สองครั้งบน fresh isolated DB ผ่าน `integrity_check=ok` และ foreign-key violations 0 Backend test ยืนยัน display-name migration idempotency และข้อมูลเดิมไม่ถูก reset
 
-Primary navigation ยังมีเพียง หน้าหลัก, เอกสารการสอน, ชีทสรุป, อัปโหลด, โปรไฟล์ และ Search อยู่ใน topbar/mobile menu ไม่มี My Upload Requests แยกกลับมา
+Production smoke ใช้ temp DB แยกอีกชุด ไม่ใช้ข้อมูลจริง ไม่มี production seed ใหม่
 
-## 6. Contributor Ecosystem
+## 6. Design System
 
-เพิ่ม `display_name` พร้อม fallback username และ reusable `UserIdentity` ที่แสดง avatar/initial, display name และ `@username` Document cards เชื่อมไป `/dashboard/users/:username`
+ใช้ #FCF8FA background, #F8F9FA/#F6F3F4/#FFFFFF surfaces, #111827/#4B5563 text, #E5E7EB borders และ #000000 primary action ม่วง #8B5CF6 ใช้จำกัด โดยข้อความม่วงใช้ #6D28D9 ที่อ่านชัดกว่า; #10B981 positive signal และ #0058BE link; muted text #687280
 
-API `GET /api/contributors/search?q=` ค้น username/display name แบบ partial case-insensitive และจำกัด 20 รายการ API `GET /api/contributors/:username` ส่งเฉพาะ identity, level, public summary, badges และ approved documents โปรไฟล์สาธารณะไม่ส่ง email, password, token, role, pending/rejected request หรือ internal uploader ID
+Dark feature surfaces ใช้ #0B0D11/#13161C/#1C2029 พร้อม border #27272A Cards ส่วนใหญ่เป็นกลาง สถานะ success/warning/danger มีข้อความกำกับ
 
-Analytics, Helpful, Score, Level และ Badges ใช้ข้อมูล authoritative เดิม คะแนนยังคำนวณจาก unique approved contribution 20, qualified unique non-owner download 2, active non-owner Helpful 5 และ View 0 ไม่มีค่าที่ client แก้ได้
+Typography: Leelawadee UI/Tahoma/Noto Sans Thai/Arial; Thai heading line-height 1.4 ขึ้นไป/body 1.65; Cascadia Code/Consolas เฉพาะ technical labels/ตัวเลข Spacing ใช้ 4–64px scale; radius/control/border/shadow อยู่ใน tokens; controls 44px; shadow เบา; glyphs/SVG เดิม ไม่เพิ่ม icon CDN ภาษา root document เป็น th
 
-## 7. Duplicate System
+## 7. Starter Page
 
-คง classifier เดียวและ precedence `EXACT_DUPLICATE -> CONTENT_DUPLICATE -> POSSIBLE_DUPLICATE -> NONE` ตรวจทั้ง PENDING requests และ APPROVED documents SHA-256 มาจาก bytes ฝั่ง server จึงเปลี่ยน filename เพื่อหลบไม่ได้ Content fingerprint รองรับ plain text/simple text PDF ที่ extract ได้อย่างมั่นใจ ส่วนไฟล์ซับซ้อน fallback อย่างปลอดภัย Same hierarchy อย่างเดียวไม่ถือว่าซ้ำ
+Hero ใช้ข้อความ “ค้นหา แบ่งปัน และส่งต่อความรู้.” พร้อม Browse/Share destinations ที่ตรวจ anonymous/USER/ADMIN แล้ว Product Demo เป็นภาพสาธิตแนวคิดซึ่งระบุชัด ไม่สร้างเอกสาร/ผู้ใช้/สถิติปลอม และไม่เป็น functional app ซ้อน
 
-รายการซ้ำไม่เผยแพร่ ไม่เพิ่ม public count และไม่รับ contribution reward Admin เห็น New vs Existing, binary/content signal และเลือก Reject as Duplicate ผ่าน confirmation dialog
+Bento แสดง discovery/share/Lecture/Sheet/contributors; marquee แสดง vocabulary ของผลิตภัณฑ์; dark section อธิบายคุณค่าผู้แบ่งปัน; community loop และ footer/CTA ใช้เรื่องราวที่เกี่ยวกับ CSIT เท่านั้น ไม่มี pricing/billing/testimonials/cookie banner/language toggle ที่ไม่จำเป็น
 
-## 8. Storage Deduplication
+ไม่มี anonymous aggregate API จึงใช้ non-numeric communication แทน Metrics ปลอม Autonomous CSS typing/results/Helpful/marquee และ viewport reveal มีปุ่ม pause และ reduced-motion/static fallback Preview animation หยุดเมื่ออยู่นอก viewport และ observer ถูก disconnect ขณะ unmount ไม่แก้ค่า input จริง
 
-`file_assets.binary_hash` เป็น canonical binary ที่ unique Request, LectureFile และ SheetFile อ้าง asset เดียวกัน Publication เพิ่ม reference โดยไม่ copy BLOB มี trigger ป้องกันการลบ asset ที่ถูกอ้าง และ cleanup ลบเฉพาะ orphan
+เลิก import hero PNG เดิมประมาณ 2.1MB จึงไม่ emit ไฟล์ดังกล่าวใน production Starter bundle ใหม่
 
-Storage report ของฐาน runtime หลัง migration: `integrity=ok`, foreign-key violations 0, asset 1 รายการ/242665 bytes, request reference 1, sheet reference 1 และ legacy payload 0
+## 8. User UX/UI
 
-## 9. Admin Renovation
+Home, Lectures, Sheets, Course/year/semester/documents, Search, Upload/history และ Profile ใช้ design tokens เดียวกัน คงห้ารายการ navigation พร้อม Search shortcut/mobile menu
 
-Admin root เปิด Dashboard “สิ่งที่ต้องดำเนินการ” เป็นค่าเริ่มต้น มี pending CTA, metrics และ review guidance Queue แสดง summary และมี action หลัก “ตรวจสอบ” หนึ่งรายการต่อ card
+Home รวมทั้งสองประเภท Typed catalog ใช้ metadata เท่านั้นและโหลดใหม่เมื่อ SPA เปลี่ยนประเภท ปี/ภาคเรียน/counts เป็นข้อมูลจริง Document actions ใช้ authoritative document/file เดียวกัน ทั้ง view/download/Helpful Contributor links/impact และ long Thai/English strings ตรวจผ่าน fixture และภาพจริง
 
-Approval Workspace มี preview ในบริบท, metadata, contributor, duplicate comparison และ sticky Approve/Reject/Reject Duplicate bar บน desktop; responsive จะ stack บนหน้าจอแคบ Reject ใช้ custom alert dialog พร้อมเหตุผล, Escape, focus trap และคืน focus แทน `window.prompt`
+Login/Register รักษาฟอร์มและ validation เดิมแต่เปลี่ยนตามธีมใหม่ ไม่ใส่ autonomous motion รอบ fields
 
-หน้า Users และ Academic Structure ถูกปรับให้เป็น read-only management views ที่ใช้งานได้ตาม API จริง โดยไม่สร้าง CRUD contract ที่ backend ยังไม่มี
+## 9. Public Contributor
 
-## 10. Database / Migration
+คง `/dashboard/users/:username` และ authenticated contributor search/profile API ตาม permission model เดิม Public หมายถึง visible-to-authenticated-users ไม่เปิด anonymous browsing เพิ่มโดยพลการ
 
-เพิ่ม `users.display_name TEXT NOT NULL DEFAULT ''` แบบ idempotent, backfill ค่าว่างจาก username และ index `idx_users_public_identity` สำหรับ lowercase username/display name lookup Fresh seed และ registration ใส่ display name ได้ Existing data, file assets และ foreign keys ไม่ถูกทำลาย
+แสดง display name/username/avatar/recognition/public counts/approved documents ผ่าน whitelist ไม่แสดง email/password/token/private account/security metadata หรือ pending/rejected uploads Shared identity มี avatar/initial fallback และ route link จริง Search รองรับ exact/partial/case-insensitive username/displayName พร้อม @ ใน UI
 
-รัน migration ฐาน runtime สองรอบสำเร็จ และ `PRAGMA foreign_key_check` ผ่านใน integration suite
+Profile generation guard ป้องกันข้อมูลจาก route ก่อนหน้าทับ route ใหม่ Privacy assertions ผ่าน Backend integration
 
-## 11. Security
+## 10. Contribution System
 
-Contributor routes ต้อง authenticate และ validate username รูปแบบ/ความยาว Search จำกัด query 100 ตัวอักษรและผลลัพธ์ 20 รายการ Query ใช้ prepared statements และไม่ select BLOB DTO ใช้ whitelist/destructure ก่อนตอบ Public profile ไม่เปิดข้อมูลบัญชีหรือ workflow ส่วนตัว
+คง server-derived rules: rewardable completed contribution 20, unique non-owner download 2, non-owner Helpful 5, View 0 หนึ่ง submission นับ contribution ครั้งเดียว ไม่รวม request + public record เป็นสองรายการ
 
-Role/ownership, pending/rejected file protection, approved-only public document resolution, server-authoritative score, Helpful uniqueness/self-vote protection, qualified interaction uniqueness, Helmet, CORS, upload MIME/signature/size validation และ `nosniff` เดิมยังทำงาน
+Helpful ใช้ DB uniqueness และ idempotent toggle; self-vote ถูกปฏิเสธ การดาวน์โหลดซ้ำไม่เพิ่ม qualified reward ซ้ำ Levels/badges derive จาก authoritative data และไม่เพิ่ม permissions Duplicate/rejected contributions ไม่ได้ publication points
 
-`npm audit --omit=dev` พบ 0 production vulnerabilities ส่วน full audit พบ moderate 2 รายการใน Vitest/@vitest-mocker ฝั่ง development; ไม่ใช้ `audit fix --force` เพราะต้องอัปเกรด Vitest major version
+Aggregate test: 2 publications + 4 qualified downloads + 6 Helpful = 78 points; search/profile reconcile ตรงกัน และ legacy self rows ไม่เพิ่ม score Browser E2E ยืนยัน Helpful +5 และดาวน์โหลดสองครั้งรวม +2
 
-## 12. Accessibility
+## 11. Duplicate Detection
 
-เพิ่ม semantic nav/search/heading/form/button, visible focus, status ที่มี text + dot ไม่พึ่งสี, label สำหรับช่องค้น/ฟอร์ม, touch target 44px, `aria-pressed` สำหรับ Helpful/queue, `aria-expanded` สำหรับ menu/details และ dialog แบบ `alertdialog` พร้อม labelled/described relation, Escape, focus trap และ focus restoration
+คง precedence EXACT_DUPLICATE → supported CONTENT_DUPLICATE → POSSIBLE_DUPLICATE → NONE Server SHA-256 ไม่ถูกหลบด้วยการเปลี่ยน filename ตรวจทั้ง pending และ published records; metadata possible match ต้องมี normalized title และ Admin เป็นผู้ตัดสิน ไม่ใช้ hierarchy อย่างเดียว
 
-สีข้อความและ action ใช้ near-black/dark semantic foreground บนพื้นอ่อน ปุ่ม danger ใช้ทั้งข้อความและรูปแบบ และรองรับ `prefers-reduced-motion`
+Backend integration ผ่าน exact/content/possible/pending, renamed binary, distinct same-semester files, duplicate reward protection และ retry ไม่มีเปอร์เซ็นต์ similarity ปลอม Admin เปิด pending match ผ่าน ADMIN request-file API และ published match ผ่าน approved document API
 
-## 13. Responsive / Visual QA
+Content fingerprint รองรับ plain text/simple extractable PDF แบบ bounded/conservative เท่านั้น Compressed/encrypted/image-only/complex PDFs และ unsupported extraction fallback อย่างปลอดภัย จึงไม่อ้าง universal semantic duplicate detection
 
-Responsive implementation รองรับ layout targets 375/768/1024/1440 ผ่าน mobile-first wrapping, collapsing grids, mobile menu, stack admin workspace, reachable action bar, `min-width: 0`, `overflow-wrap:anywhere`, flexible buttons และ table overflow เฉพาะกรณีจำเป็น Automated source assertions ผ่าน
+## 12. Storage Deduplication
 
-- 375: NOT RUN ใน real browser
-- 768: NOT RUN ใน real browser
-- 1024: NOT RUN ใน real browser
-- 1440: NOT RUN ใน real browser
+ใช้ `file_assets(binary_hash UNIQUE)` เป็น canonical bytes Requests/public file rows อ้าง reference เดียว Publication ไม่ copy BLOB มี delete-protection trigger และ cleanup ลบเฉพาะ orphan
 
-เหตุผล: browser skill มีอยู่แต่ runtime `node_repl`/browser connection ไม่ถูกเปิดใน session นี้ จึงไม่สร้างผล visual PASS หรือ screenshot ปลอม
+Existing integration ผ่าน shared-asset reuse, reject duplicate โดย count/score ไม่ inflate, reference safety และ orphan cleanup Queue/search/profile โหลดเฉพาะ metadata ขณะ file serving/extraction เท่านั้นที่โหลด bytes
 
-## 14. Automated Tests
+## 13. Admin UX/UI
 
-- Backend: PASS 29/29
-- Frontend: PASS 12/12 ใน 10 test files
+คง Dashboard แบบ action-needed, pending queue, preview/metadata/contributor workspace, duplicate comparison และ sticky decision bar Responsive เป็น stacked layout; mobile actions wrap โดยมีพื้นที่ให้ข้อความและ touch targets
+
+Approval/Reject/Reject Duplicate ผ่าน ConfirmDialog จับ request ID และป้องกัน selection/refresh ระหว่างตัดสินใจ Rejection ต้องมีเหตุผล bounded ส่งกลับ uploader; success status ชัดเจนและเลือก pending item ถัดไป
+
+Preview race test ใช้ slow A/fast B และพิสูจน์ว่า iframe B ไม่ถูก response A ทับ Preview bytes จริงและ pending duplicate actions ผ่านเบราว์เซอร์ ไม่ใช่เพียง API 200
+
+## 14. Security
+
+รักษา scrypt password migration, signed short-lived access JWT, refresh rotation/revocation/HttpOnly/Secure/SameSite, role/ownership, rate limiting, explicit CORS, prepared SQL, safe filename/path/size/MIME/signature checks และ safe file headers เดิม
+
+พบและแก้ production CSP ที่บล็อก Blob iframe ด้วย `frame-src 'self' blob:` เท่านั้น ไม่เปิด arbitrary frame sources หรือ unsafe-inline scripts Backend CSP assertions ผ่าน; final browser security logs ไม่มี CSP error
+
+`npm.cmd audit --omit=dev` ผ่าน: 0 production vulnerabilities ข้อนี้ไม่ใช่การรับรองว่าไม่มีช่องโหว่เชิงตรรกะทุกประเภทในระบบ
+
+## 15. Accessibility
+
+มี semantic main/nav/heading/form/button, associated labels, th document language, Starter skip link, visible focus/dropzone focus, non-color status text, Helpful pressed state, menu expanded/control IDs และ Escape
+
+Upload tabs มี tab/panel relation, roving tabindex และ Arrow/Home/End พร้อม focus verification Dialog ทดสอบ Tab ไป confirm, Escape ปิดและคืน focus ที่ trigger จริงในทุก viewport ปุ่ม pause และ prefers-reduced-motion ทำงานจริง ไม่อ้าง exhaustive screen-reader certification
+
+## 16. Responsive QA
+
+| Width | Result | Evidence |
+|---|---|---|
+| 375 | PASS | mobile menu, stacked forms/cards/review/actions, long strings, dialog/preview |
+| 768 | PASS | tablet grids, upload layout, stacked Admin review, dark section |
+| 1024 | PASS | navigation/breakpoint, discovery/forms/profile/review |
+| 1440 | PASS | desktop hero/workspace/duplicate comparison และ 3-actor browser lifecycle |
+
+Final Edge run: 89 screenshots / 85 checks, overflow bounds 0, runtime/security errors 0 ภาพ inspected แยกจาก assertions รวม settled dialog, file preview, Starter light/dark และ long strings ผลนี้จำกัดอยู่ใน Chromium/Edge และ fixtures ที่รัน ไม่ใช่ cross-browser certification
+
+Artifacts อยู่ `artifacts/visual-qa/report.json` และ PNGs ใน directory เดียวกัน ซึ่งถูก gitignore และไม่เข้า runtime
+
+## 17. Automated Tests
+
+- Backend: PASS 30/30 รวม auth/material publishing/migration/privacy/duplicate/storage/score และ aggregate reconciliation
+- Frontend: PASS 19/19 ใน 13 files รวม real memory-router typed navigation, Admin preview race/confirmation/pending evidence, Starter pause/auth routes/observer และ keyboard Upload tabs
 - Lint: PASS
-- Build: PASS, Vite 119 modules
-- Migration/integrity: PASS
-- Production HTTP smoke: PASS
+- Production build: PASS 118 modules; JS ประมาณ 254KB / gzip 83KB, CSS ประมาณ 41.5KB / gzip 8.6KB
+- Migration twice/integrity/FK: PASS บน isolated DB
+- Browser visual/keyboard/lifecycle: PASS
 
-Frontend tests ครอบคลุม Thai navigation, course hierarchy, upload/history, own profile, clickable contributor impact, unified search, public profile, admin duplicate workspace/dialog และ design-token/responsive/reduced-motion source contracts
+## 18. 3-Actor E2E
 
-## 15. 3-Actor E2E
+Backend suite ใช้ user1/user2/admin1 ผ่าน HTTP กับ isolated SQLite ครอบคลุม Lecture/Sheet publication, privacy, filters, view/download, contributor search/profile, Helpful/self/repeat rules, duplicates/storage และ approval retry
 
-Integration suite ใช้ `user1`, `user2`, `admin1` ผ่าน HTTP API จริงกับ isolated SQLite fixture ครอบคลุม unique Lecture/Sheet upload, pending privacy, approval, discovery, typed catalogs, public contributor click destination data, username/partial display-name search, public profile privacy, Helpful toggle/self rejection, repeated download anti-abuse, exact/content/possible/pending duplicate, storage reuse, duplicate score protection และ approval retry idempotency
+เพิ่ม browser lifecycle ที่ 1440: user1 เลือกไฟล์ text จริงผ่าน native file input และส่งฟอร์ม → history PENDING → user2 ค้นไม่พบ → admin1 เลือกรายการ/ตรวจ preview/confirm approval → DB มีหนึ่ง public Sheet → user2 ค้นพบหนึ่งรายการ → กด contributor link เข้า profile → Helpful +5 → ดาวน์โหลดจาก UI สองครั้งรวม score +2
 
-Scenario public contributor ใหม่ยืนยันว่า `user2` ค้น “USER1” และ partial Thai display name พบ `user1`, เปิด profile ได้เฉพาะข้อมูล safe และ document DTO แสดง display name/username/avatar field ถูกต้อง
+Browser actors ใช้ valid fixture refresh sessions เป็น setup; password login/refresh/logout ถูกพิสูจน์ใน Backend tests แยก ไม่มี test-only hooks ใน runtime Lifecycle report เป็น PASS และมี pending/private/approved/discovered/impact screenshots
 
-## 16. Regression
+## 19. Regression
 
-Authentication/authorization, Home, Course, Year, Semester, Lectures, Sheets, Upload, My Uploads, Own Profile, Search, View, Download, Admin Approval, duplicate detection, storage dedup, Helpful, contribution score, levels และ badges ผ่าน automated regression/integration suite ไม่มี API เดิมถูกลบ
+Auth/role/ownership, Home/hierarchy, Lecture/Sheet filters, Upload/My Uploads, own/public Profile, contributor search, view/download, Helpful/score/levels/badges, exact/content/possible/pending duplicates, shared storage/cleanup และ Admin approval ผ่าน automated regression กับ browser checks
 
-## 17. Commands Executed
+ไม่ลบ API/feature เดิม ไม่เปลี่ยน domain enum ไม่เพิ่มแอปใหม่ ไม่ reset ฐานข้อมูลจริง Approval transaction/retry และ contribution count semantics เดิมผ่านต่อเนื่อง
 
-- `npm.cmd run lint` — PASS
-- `npm.cmd run build` — PASS
-- `npm.cmd run test:backend` — PASS 29/29
-- `npm.cmd run test:frontend` — PASS 12/12
-- `npm.cmd test` — PASS 41 tests รวม
-- `npm.cmd run db:migrate` — PASS สองรอบ
-- `npm.cmd run db:storage-report` — PASS, integrity ok/FK 0
-- `npm.cmd run start:production` — PASS บน port 8099 ด้วย temp production DB
-- `Invoke-WebRequest` `/api/health`, `/`, `/dashboard/users/user1` — PASS HTTP 200
-- `npm.cmd audit --omit=dev` — PASS, 0 vulnerabilities
-- `npm.cmd audit` — exit 1 จาก moderate development-only 2 รายการ
+## 20. Commands Actually Executed
 
-## 18. Remaining Issues
+| Command / Check | Final result |
+|---|---|
+| `npm.cmd test` | PASS: Backend 30 + Frontend 19 |
+| `npm.cmd run test:backend` | PASS หลังแก้ fixture created_at; suite รวมผ่านอีกครั้ง |
+| `npm.cmd run test:frontend` | PASS; navigation/mock/keyboard tests รวมผ่าน |
+| `npm.cmd run lint` | PASS |
+| `npm.cmd run build` | PASS final production assets |
+| `npm.cmd run test:visual` | PASS: 89 screenshots / 85 checks + browser 3 actors |
+| `node backend/src/data/migrate.js` ใน QA runner | PASS สองรอบต่อ fresh DB |
+| `PRAGMA integrity_check` / `foreign_key_check` | PASS: ok / 0 |
+| `npm.cmd run start:production` | PASS temp DB, backend server.js port 8099 |
+| `Invoke-WebRequest` health/root/nested SPA route | PASS HTTP 200 ทั้งสาม |
+| built JS request พร้อม Origin header | PASS HTTP 200, text/javascript |
+| `npm.cmd audit --omit=dev` | PASS: 0 vulnerabilities |
+| `node --check scripts/visual-qa.mjs` / `git diff --check` | PASS |
 
-- Visual QA ด้วย browser จริงที่ 375/768/1024/1440 ยัง NOT RUN เพราะ browser runtime ไม่พร้อม จึงยังต้องตรวจ spacing, Thai font rendering, preview embedding, long pathological strings และ motion ด้วยตา
-- Vitest/@vitest-mocker มี moderate development-only advisories 2 รายการ การแก้ต้องอัปเกรด major และควรทำเป็น dependency ticket แยก
-- PDF content fingerprint ตั้งใจรองรับเฉพาะ plain/simple extractable text; compressed, encrypted, image-only และ complex PDFs fallback ไป exact/metadata checks
-- ไฟล์ hero PNG เดิมใน production bundle มีขนาดประมาณ 2.1 MB ควร optimize ในรอบ performance asset ถัดไป
+ช่วงแรก `npm test` แบบ PowerShell command ถูก execution policy บล็อก จึงใช้ npm.cmd ตาม environment โดยไม่เปลี่ยน system policy มี intermediate failures ที่แก้จริง: fixture required timestamp, isolated CORS origin, sandbox renderer startup, Blob CSP และ synthetic-click focus setup ไม่ใช้ผลล้มเหลวเหล่านี้มาอ้าง PASS จน final run ผ่าน
 
-## 19. Deploy Readiness
+Typecheck: NOT RUN — repository JavaScript ไม่มี typecheck script Full npm audit: NOT RUN ในรอบนี้; production dependency audit รันแล้ว ไม่อ้างผล full/dev audit เก่าจากรอบก่อน Real-database migration/seed: NOT RUN เพราะตรวจแบบ isolated และไม่จำเป็นต้องแก้ schema/ข้อมูลจริง
 
-ยังไม่พร้อม Deploy
+## 21. Remaining Issues
 
-โค้ด, migration, privacy, integration, lint, build และ production smoke ผ่าน แต่ master acceptance บังคับ real-browser visual QA และห้ามรายงาน PASS โดยไม่ได้รัน จึงต้องทำ visual matrix ให้ครบก่อนเปลี่ยนสถานะ deploy นอกจากนี้ production ต้องตั้ง `NODE_ENV`, `JWT_SECRET`, persistent `DATABASE_PATH`, `ALLOWED_ORIGINS` ตาม topology จริง และ backup SQLite ก่อน migration
+ไม่มี blocker ที่พบจาก checks ที่รัน ข้อจำกัดจริง: content fingerprint ไม่รองรับ PDFs ทุกชนิด; native preview ของ Office ขึ้นกับ browser/file type; browser matrix ใช้ Edge และ text preview fixture ไม่ใช่ทุก OS/native PDF viewer หรือ assistive technology
+
+Visual QA ต้องมี installed Chromium/Edge และ OpenSSL; host อื่นตั้ง executable paths ได้ Restricted sandbox อาจต้องอนุญาต renderer process นอก sandbox Artifacts/test certificates/sessions เป็น isolated development evidence และไม่ควรใช้เป็น production credentials
+
+## 22. Deploy Readiness
+
+พร้อม Deploy แต่ต้องตั้งค่าเพิ่มเติม
+
+โค้ด/build/migrations/integrity/privacy/regression/production dependency audit/browser lifecycle/visual checks ผ่านแล้ว ก่อน deploy จริงให้ใช้ HTTPS, ตั้ง NODE_ENV=production, JWT_SECRET แบบสุ่ม, persistent DATABASE_PATH และ ALLOWED_ORIGINS ของ frontend รวม origin ของตนเอง สำรอง SQLite เดิมและรัน migration ก่อน startup ตาม deployment topology ที่ใช้ ห้าม seed production
+
+ไม่มีการ deploy/publish หรือแก้ข้อมูลจริงในงานนี้

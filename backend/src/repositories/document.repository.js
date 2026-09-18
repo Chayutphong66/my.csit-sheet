@@ -5,30 +5,36 @@ const publicDocuments = `
          lecture_files.original_filename AS file_name, lecture_files.mime_type,
          lectures.course_id, courses.code AS course_code, courses.name AS course_name,
          courses.description AS course_description, lectures.academic_year, lectures.semester,
-         lectures.instructor, lectures.uploader_id, users.username AS uploader_username,
+         COALESCE(NULLIF((SELECT group_concat(display_name, ', ') FROM document_teachers dt WHERE dt.document_type='Lecture' AND dt.document_id=lectures.id), ''), NULLIF(lectures.instructor,''), 'ยังไม่ทราบอาจารย์') AS instructor,
+         programs.code AS program_code, COALESCE(programs.name_th, programs.name_en, '') AS program_name,
+         lectures.uploader_id, users.username AS uploader_username,
          COALESCE(NULLIF(users.display_name, ''), users.username) AS uploader_display_name,
          users.avatar_url AS uploader_avatar_url,
          lectures.view_count, lectures.download_count,
          (SELECT COUNT(*) FROM document_helpful_votes votes
           WHERE votes.document_type = 'Lecture' AND votes.document_id = lectures.id) AS helpful_count,
-         lectures.created_at, lectures.updated_at
+         lectures.created_at, lectures.updated_at, lectures.description
   FROM lectures
   JOIN lecture_files ON lecture_files.lecture_id = lectures.id
   JOIN courses ON courses.id = lectures.course_id
+  LEFT JOIN programs ON programs.id = lectures.program_id
   LEFT JOIN users ON users.id = lectures.uploader_id
   WHERE lectures.status = 'APPROVED'
   UNION ALL
   SELECT 'Sheet', sheets.id, sheets.title, sheet_files.original_filename, sheet_files.mime_type,
          sheets.course_id, courses.code, courses.name, courses.description,
-         sheets.academic_year, sheets.semester, upload_requests.instructor_name,
+         sheets.academic_year, sheets.semester,
+         COALESCE(NULLIF((SELECT group_concat(display_name, ', ') FROM document_teachers dt WHERE dt.document_type='Sheet' AND dt.document_id=sheets.id), ''), 'ยังไม่ทราบอาจารย์'),
+         programs.code, COALESCE(programs.name_th, programs.name_en, ''),
          sheets.uploader_id, users.username, COALESCE(NULLIF(users.display_name, ''), users.username), users.avatar_url,
          sheets.view_count, sheets.download_count,
          (SELECT COUNT(*) FROM document_helpful_votes votes
           WHERE votes.document_type = 'Sheet' AND votes.document_id = sheets.id),
-         sheets.created_at, sheets.updated_at
+         sheets.created_at, sheets.updated_at, sheets.description
   FROM sheets
   JOIN sheet_files ON sheet_files.sheet_id = sheets.id
   JOIN courses ON courses.id = sheets.course_id
+  LEFT JOIN programs ON programs.id = sheets.program_id
   LEFT JOIN users ON users.id = sheets.uploader_id
   LEFT JOIN upload_requests ON upload_requests.id = sheets.source_request_id
   WHERE sheets.status = 'APPROVED'
@@ -39,6 +45,7 @@ function mapDocument(row) {
   return {
     id: row.id,
     title: row.title,
+    description: row.description || '',
     fileName: row.file_name,
     fileType: row.mime_type,
     documentType: row.document_type,
@@ -49,6 +56,8 @@ function mapDocument(row) {
     academicYear: row.academic_year,
     semester: row.semester,
     instructor: row.instructor,
+    programCode: row.program_code || '',
+    programName: row.program_name || '',
     uploaderUsername: row.uploader_username,
     uploaderDisplayName: row.uploader_display_name || row.uploader_username,
     uploaderAvatarUrl: row.uploader_avatar_url || '',
@@ -119,9 +128,9 @@ export function searchDocuments(query, documentType = '', viewerId = '') {
     SELECT * FROM (${publicDocuments})
     WHERE (? = '' OR document_type = ?) AND (
       lower(title) LIKE ? OR lower(file_name) LIKE ? OR lower(course_code) LIKE ?
-       OR lower(course_name) LIKE ? OR lower(academic_year) LIKE ? OR lower(semester) LIKE ?)
+       OR lower(course_name) LIKE ? OR lower(description) LIKE ? OR lower(academic_year) LIKE ? OR lower(semester) LIKE ? OR lower(instructor) LIKE ?)
     ORDER BY created_at DESC LIMIT 100
-  `).all(documentType, documentType, term, term, term, term, term, term).map(mapDocument)
+  `).all(documentType, documentType, term, term, term, term, term, term, term, term).map(mapDocument)
   return addHelpfulByViewer(documents, viewerId)
 }
 
@@ -141,4 +150,13 @@ export function listPublicDocumentsByUploaderId(uploaderId, viewerId = '', limit
     LIMIT ?
   `).all(uploaderId, Math.min(Math.max(Number(limit) || 12, 1), 50)).map(mapDocument)
   return addHelpfulByViewer(documents, viewerId)
+}
+
+export function listProfileDocuments(uploaderId, viewerId) {
+  return addHelpfulByViewer(db.prepare(`SELECT * FROM (${publicDocuments}) WHERE uploader_id = ? ORDER BY updated_at DESC`).all(uploaderId).map(mapDocument), viewerId)
+}
+
+export function listStarredPublicDocuments(userId, viewerId) {
+  const rows = db.prepare(`SELECT documents.*, stars.created_at AS starred_at FROM (${publicDocuments}) documents JOIN document_stars stars ON stars.document_type = documents.document_type AND stars.document_id = documents.id WHERE stars.user_id = ? ORDER BY stars.created_at DESC`).all(userId)
+  return addHelpfulByViewer(rows.map(row => ({ ...mapDocument(row), starredAt: row.starred_at })), viewerId)
 }

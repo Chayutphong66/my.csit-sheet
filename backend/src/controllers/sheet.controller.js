@@ -10,10 +10,9 @@ import {
   findUploadRequestFileById,
   findUploadRequestsByUserId,
   findContributionSummaryByUserId,
-  listCourses,
-  listInstructors,
   publishUploadRequest
 } from '../repositories/uploadRequest.repository.js'
+import { listAcademicPeriods, listCurriculumCourses, listPrograms } from '../repositories/academic.repository.js'
 import { findApprovedLectures } from '../repositories/lecture.repository.js'
 import { findSheetFileBySheetId } from '../repositories/sheetFile.repository.js'
 import {
@@ -118,7 +117,11 @@ export function createRequest(req, res, next) {
       documentType: validated.documentType,
       academicYear: validated.academicYear,
       semester: validated.semester,
-      instructorId: validated.instructorId
+      instructorIds: validated.instructorIds,
+      courseOfferingId: validated.courseOfferingId,
+      programId: validated.programId,
+      description: validated.description,
+      suggestionIds: validated.suggestionIds
     })
 
     createNotification({
@@ -235,8 +238,9 @@ export function getCatalog(req, res) {
 
 export function getMetadata(_req, res) {
   res.json({
-    courses: listCourses(),
-    instructors: listInstructors(),
+    courses: listCurriculumCourses(),
+    programs: listPrograms(),
+    ...listAcademicPeriods(),
     documentTypes: ['Lecture', 'Sheet']
   })
 }

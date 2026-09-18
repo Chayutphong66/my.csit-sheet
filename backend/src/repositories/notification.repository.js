@@ -30,6 +30,10 @@ export function createNotification({
   return findNotificationById(id)
 }
 
+export function notifyAdmins({ title, message, type = 'TEACHER_SUGGESTION', uploadRequestId = '' }) {
+  return db.prepare("SELECT id FROM users WHERE role='ADMIN'").all().map(({ id }) => createNotification({ userId: id, title, message, type, uploadRequestId }))
+}
+
 export function findNotificationById(id) {
   return toNotification(db.prepare('SELECT * FROM notifications WHERE id = ?').get(id))
 }

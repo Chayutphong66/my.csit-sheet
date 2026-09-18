@@ -16,16 +16,21 @@ const contributorAggregate = `
       AND duplicate_status NOT IN ('EXACT_DUPLICATE', 'CONTENT_DUPLICATE')
     GROUP BY user_id
   ),
-  impacts(uploader_id, qualified_downloads, helpful) AS (
+  downloads(uploader_id, qualified_downloads) AS (
     SELECT published.uploader_id,
-      COUNT(DISTINCT CASE WHEN interactions.interaction_type = 'DOWNLOAD'
-        THEN interactions.user_id || ':' || interactions.document_type || ':' || interactions.document_id END),
-      COUNT(DISTINCT votes.user_id || ':' || votes.document_type || ':' || votes.document_id)
+      COUNT(*)
     FROM published
-    LEFT JOIN document_interactions interactions
+    JOIN document_interactions interactions
       ON interactions.document_type = published.document_type AND interactions.document_id = published.id
-    LEFT JOIN document_helpful_votes votes
+    WHERE interactions.interaction_type = 'DOWNLOAD' AND interactions.user_id != published.uploader_id
+    GROUP BY published.uploader_id
+  ),
+  helpful_votes(uploader_id, helpful) AS (
+    SELECT published.uploader_id, COUNT(*)
+    FROM published
+    JOIN document_helpful_votes votes
       ON votes.document_type = published.document_type AND votes.document_id = published.id
+    WHERE votes.user_id != published.uploader_id
     GROUP BY published.uploader_id
   )
   SELECT users.id, users.username,
@@ -37,12 +42,13 @@ const contributorAggregate = `
     COALESCE(SUM(published.view_count), 0) AS total_views,
     COALESCE(SUM(published.download_count), 0) AS total_downloads,
     COALESCE(MAX(publication_rewards.rewarded_published), 0) AS rewarded_published,
-    COALESCE(MAX(impacts.qualified_downloads), 0) AS qualified_downloads,
-    COALESCE(MAX(impacts.helpful), 0) AS helpful
+    COALESCE(MAX(downloads.qualified_downloads), 0) AS qualified_downloads,
+    COALESCE(MAX(helpful_votes.helpful), 0) AS helpful
   FROM users
   LEFT JOIN published ON published.uploader_id = users.id
   LEFT JOIN publication_rewards ON publication_rewards.user_id = users.id
-  LEFT JOIN impacts ON impacts.uploader_id = users.id
+  LEFT JOIN downloads ON downloads.uploader_id = users.id
+  LEFT JOIN helpful_votes ON helpful_votes.uploader_id = users.id
 `
 
 function mapContributor(row) {

@@ -1,5 +1,21 @@
 # CSIT Sheet Master Renovation Audit
 
+## Course/Teacher/Offering follow-up — 2026-09-16
+
+Repository inspection confirmed native SQLite rather than Prisma, existing Course/Instructor tables, Express repository/controller conventions and Vue service/component conventions. The implementation extends these paths instead of replacing them. The NU IT 2565 curriculum is a local repeatable JSON seed with 54 verified course rows; no runtime scrape and no teacher/offering seed are used. Nullable references preserve older documents.
+
+New Offering and Offering-Teacher constraints support period-specific team teaching. Pending suggestions are moderated transactionally. Upload teacher selection is optional and dependent on BE year + controlled semester + Course; server validation rejects unrelated/inactive teachers. Admin role checks protect Teacher/Offering/Suggestion management. Final isolated seed resulted in 54 Courses, 0 Teachers, 0 Offerings, 0 Suggestions and zero FK violations. Automated results: backend 36/36, frontend 23/23, lint/build/audit pass, plus four-width isolated HTTPS Edge QA including Admin academic screens and the established publication lifecycle.
+
+## Current audit — 2026-09-15
+
+The supplied request changes the primary design direction to the getdesign.md Starter Kit's neutral/black/purple palette. The Passionfroot notes below are historical. The current repository already implements contributor API/search/profile, shared identity/status/dialogs, Thai user/Admin screens, score/Helpful anti-abuse, conservative content fingerprints and canonical FileAsset storage. Do not reimplement them.
+
+This pass preserves Vue/Router/stores/services, Express/controllers/repositories, SQLite/migrations and the upload/publication lifecycle. It renovates the existing Starter with product demonstration/Bento/dark feature storytelling, replaces the old cream/lime tokens, fixes Thai heading rhythm, stale reused catalog routes, profile/preview races, approval confirmation, pending duplicate file actions and CSP-blocked Blob preview. It explicitly removes BLOB projection from queue metadata and avoids interaction-by-vote row multiplication in contributor aggregates. No schema/runtime dependency addition or real-data reseed is needed.
+
+Verification baseline executed in this session before modifications: backend 29/29 and frontend 12/12. Real-browser fallback is available via installed Edge and an isolated HTTPS fixture; final results and commands are recorded in CODE_REVIEW_TH.md. The older “browser unavailable” notes below describe the earlier pass and are superseded.
+
+## Historical audit from previous renovation
+
 ## Repository and architecture
 
 - Monorepo npm workspaces: Vue 3/Vite/Vue Router/Axios frontend, Express 5/SQLite backend.

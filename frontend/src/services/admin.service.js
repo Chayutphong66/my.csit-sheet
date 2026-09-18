@@ -26,11 +26,22 @@ export const adminApi = {
     request({ url: `/admin/upload-requests/${id}/reject-duplicate`, method: 'PATCH', data: { reason } }),
   pending: () => request({ url: '/admin/sheets/pending' }),
   stats: () => request({ url: '/admin/stats' }),
+  previewCourseImport: (data) => request({ url: '/admin/course-imports/preview', method: 'POST', data }),
+  confirmCourseImport: (data) => request({ url: '/admin/course-imports/confirm', method: 'POST', data }),
+  courseImportHistory: () => request({ url: '/admin/course-imports' }),
   approve: (id) => request({ url: `/admin/sheets/${id}/approve`, method: 'PATCH' }),
   reject: (id, reason) =>
     request({
       url: `/admin/sheets/${id}/reject`,
       method: 'PATCH',
       data: { reason }
-    })
+    }),
+  teachers: (search = '') => request({ url: `/admin/teachers?search=${encodeURIComponent(search)}` }),
+  createTeacher: (data) => request({ url: '/admin/teachers', method: 'POST', data }),
+  updateTeacher: (id, data) => request({ url: `/admin/teachers/${encodeURIComponent(id)}`, method: 'PATCH', data }),
+  teacherOfferings: (id) => request({ url: `/admin/teachers/${encodeURIComponent(id)}/offerings` }),
+  offerings: () => request({ url: '/admin/course-offerings' }),
+  saveOffering: (data) => request({ url: '/admin/course-offerings', method: 'PUT', data }),
+  teacherSuggestions: (status = '') => request({ url: `/admin/teacher-suggestions?status=${encodeURIComponent(status)}` }),
+  decideTeacherSuggestion: (id, decision, reason = '') => request({ url: `/admin/teacher-suggestions/${encodeURIComponent(id)}`, method: 'PATCH', data: { decision: typeof decision === 'boolean' ? (decision ? 'APPROVE_GLOBAL' : 'REJECT') : decision, reason } })
 }

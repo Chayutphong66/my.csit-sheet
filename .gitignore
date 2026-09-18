@@ -4,6 +4,7 @@ node_modules/
 dist/
 .vite/
 coverage/
+artifacts/visual-qa/
 .nyc_output/
 
 # Environment files
@@ -22,7 +23,9 @@ pnpm-debug.log*
 *.sqlite
 *.sqlite-*
 *.db
-backend/data/
+backend/data/*
+!backend/data/registrar/
+!backend/data/registrar/*.xlsx
 
 # OS/editor noise
 .DS_Store

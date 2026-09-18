@@ -4,6 +4,10 @@ CSIT Sheet is a Thai-first Vue 3 and Express academic knowledge-sharing platform
 
 SQLite stores one canonical `file_assets` BLOB per server-calculated SHA-256. Upload requests and public Lecture/Sheet file records use safe references to that asset.
 
+Upload metadata uses controlled CS/IT programs, Buddhist Era periods, synchronized Course Code/Name autocomplete, verified multi-select teachers, and an optional 1,000-character description. Course autocomplete is ranked locally and filtered by Program + year + semester; the Upload page never calls Reg8 or an AI service. Admins can approve a teacher suggestion globally, approve it only for one document, or reject it independently from document moderation.
+
+Historical offerings come from the tracked `backend/data/registrar/DataCourseCS.xlsx` and `DataCourseIT.xlsx` files. Run `npm run db:migrate`, then `npm run db:import-courses`. The importer derives year and semester from worksheet names such as `2568_2`, reads the registrar's multi-row course/teacher layout, removes only the known `(CLOSE)` marker, and transactionally upserts Programs, Courses, ProgramCourse mappings, offerings, teachers, and assignments. Repeated imports are additive and idempotent. Admins can upload future workbooks from the Admin publish page, inspect the preview counts/errors, and explicitly confirm either a safe additive import or a separately confirmed destructive teacher sync. Every confirmed attempt is recorded in import history.
+
 Public contributor APIs expose only display name, username, avatar, derived recognition, public aggregates, badges, and approved documents. Email, credentials, tokens, role, and private request states are excluded.
 
 ## Requirements
@@ -35,17 +39,25 @@ Production startup never inserts demo accounts. Run `db:seed` only for local/dem
 ```bash
 npm run db:migrate        # apply idempotent schema migrations/backfill
 npm run db:seed           # add development seed data when tables are empty
+npm run db:import-courses # import backend/data/registrar/DataCourse{CS,IT}.xlsx idempotently
 npm run db:storage-report # integrity and FileAsset/reference counts
 npm run db:cleanup-files  # delete only unreferenced FileAssets
 npm test                  # backend integration + frontend component tests
 npm run test:backend
 npm run test:frontend
+npm run test:visual        # isolated HTTPS/Edge screenshots + keyboard/CSP checks (after build)
 npm run lint
 npm run build
 npm run start:production  # migrate, then serve API and built SPA
 ```
 
 ## Contributor rules
+
+Visual QA uses a fresh temporary SQLite database, browser profile and local HTTPS certificate. Its sample actors/documents never enter the real database. On Windows it defaults to Microsoft Edge and Git's OpenSSL; other hosts can set `BROWSER_EXECUTABLE` and `OPENSSL_EXECUTABLE`. It requires Node with native WebSocket support, writes screenshots/report to `artifacts/visual-qa/`, and may need permission to run browser renderer processes outside a restricted sandbox. It does not install packages or change production security settings.
+
+The design uses the supplied Starter Kit neutral palette, black actions and restrained purple with Thai typography. Starter includes a labelled concept demo, pauseable autonomous motion, static reduced-motion fallback, Bento capabilities and dark contribution storytelling. Authenticated metadata remains live; no fake Starter statistics are displayed.
+
+Production preview uses `frame-src 'self' blob:`. Keep HTTPS and include the frontend's own origin in `ALLOWED_ORIGINS`, as built JS/CSS modules use crossorigin requests as well as the API.
 
 Contribution Score is calculated dynamically from authoritative records:
 
@@ -91,8 +103,10 @@ When `NODE_ENV=production`, Express serves `frontend/dist` and binds to `0.0.0.0
 
 `GET /api/health` returns `{ "status": "ok" }`.
 
+For an existing deployment, back up the database and run `npm run db:migrate`, `npm run db:seed`, then `npm run db:import-courses`. The two registrar workbooks are stored in `backend/data/registrar/`. Migration is backward-compatible; seed imports/upserts curriculum courses only and does not invent teachers or offerings. No new environment variable is required.
+
 ## Security and limits
 
 Passwords use salted scrypt hashes. JWT/rotated hashed refresh tokens, role and ownership checks, Helmet, restricted CORS, login throttling, prepared SQL, MIME/signature/size/filename validation, `nosniff`, and production-safe errors remain enabled. Pending/rejected files are never public interaction targets.
 
-The 20 MB policy buffers files in memory, and SQLite BLOB storage is appropriate only for the current project scale. Reassess streaming/object storage before increasing upload size or scaling horizontally. Profile editing and full admin material deletion are not current features.
+The 20 MB policy buffers files in memory, and SQLite BLOB storage is appropriate only for the current project scale. Reassess streaming/object storage before increasing upload size or scaling horizontally. Full admin material deletion is not currently included.

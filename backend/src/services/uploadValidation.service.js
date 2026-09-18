@@ -1,8 +1,9 @@
 import {
   findCourseById,
-  findInstructorById,
   normalizeDocumentType
 } from '../repositories/uploadRequest.repository.js'
+import { findTeacher, findOfferingForTeacher, findProgram, inferProgramForCourse, courseValidForContext, courseOfferedInPeriod } from '../repositories/academic.repository.js'
+import { academicYear as validateAcademicYear, semester as validateSemester } from './academicValidation.service.js'
 
 export const MAX_FILE_BYTES = 20 * 1024 * 1024
 
@@ -56,18 +57,28 @@ export function validateUploadPayload(body) {
   if (!documentType) throw validationError('Document type must be Lecture or Sheet')
   const course = findCourseById(String(body.courseId ?? '').trim())
   if (!course) throw validationError('A valid course is required')
-  const instructor = findInstructorById(String(body.instructorId ?? '').trim())
-  if (!instructor) throw validationError('A valid instructor is required')
-  const academicYear = String(body.academicYear ?? '').trim()
-  if (!/^\d{4}$/.test(academicYear)) {
-    throw validationError('Academic year must be a four-digit year')
+  const academicYear = validateAcademicYear(body.academicYear)
+  const semester = validateSemester(body.semester)
+  const programInput = String(body.programId ?? body.program ?? '').trim()
+  const program = programInput ? findProgram(programInput) : inferProgramForCourse(course.id)
+  if (programInput && !program) throw validationError('A valid program is required')
+  const validContext = program ? courseValidForContext(course.id, program.id, academicYear, semester) : courseOfferedInPeriod(course.id, academicYear, semester)
+  if (!validContext) throw validationError('Selected course is not offered for this program, academic year, and semester')
+  const description = String(body.description ?? '').trim()
+  if (description.length > 1000 || /\0/.test(description)) throw validationError('Description must be at most 1000 characters')
+  const submittedTeacherIds = Array.isArray(body.instructorIds) ? body.instructorIds : body.instructorId ? [body.instructorId] : []
+  if (submittedTeacherIds.some(id => typeof id !== 'string')) throw validationError('Teacher IDs must be an array of strings')
+  const instructorIds = [...new Set(submittedTeacherIds.map(id => id.trim()).filter(Boolean))]
+  let courseOfferingId = null
+  for (const instructorId of instructorIds) {
+    const instructor = findTeacher(instructorId)
+    const offering = instructor?.active && findOfferingForTeacher(course.id, academicYear, semester, instructorId, program?.id || '')
+    if (!offering) throw validationError('Selected teacher is not assigned to this course, academic year, and semester')
+    courseOfferingId ||= offering.id
   }
-  const semester = String(body.semester ?? '').trim()
-  if (!semester || semester.length > 30 || /[\0\r\n]/.test(semester)) {
-    throw validationError('Semester is required and must be at most 30 characters')
-  }
+  const suggestionIds = Array.isArray(body.suggestionIds) ? [...new Set(body.suggestionIds.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim()))] : []
 
-  return { title, fileName, fileType, documentType, courseId: course.id, instructorId: instructor.id, academicYear, semester }
+  return { title, fileName, fileType, documentType, courseId: course.id, instructorIds, courseOfferingId, programId: program?.id || null, academicYear, semester, description, suggestionIds }
 }
 
 export function decodeUploadedFile(fileData, fileType) {

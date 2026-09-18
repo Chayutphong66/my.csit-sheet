@@ -3,12 +3,16 @@ import { db } from '../data/database.js'
 
 function toLecture(row) {
   if (!row) return null
+  const teachers = db.prepare(`SELECT display_name name FROM document_teachers WHERE document_type='Lecture' AND document_id=? ORDER BY display_name`).all(row.id)
   return {
     id: row.id,
     title: row.title,
     subject: row.subject,
     instructor: row.instructor,
     description: row.description,
+    programCode: row.program_code || '',
+    programName: row.program_name_th || row.program_name_en || '',
+    teachers,
     academicYear: row.academic_year,
     courseId: row.course_id,
     courseCode: row.course_code,
@@ -36,6 +40,7 @@ const lectureSelect = `
     lectures.subject,
     lectures.instructor,
     lectures.description,
+    programs.code AS program_code, programs.name_th AS program_name_th, programs.name_en AS program_name_en,
     lectures.academic_year,
     lectures.course_id,
     courses.code AS course_code,
@@ -56,6 +61,7 @@ const lectureSelect = `
   FROM lectures
   LEFT JOIN users ON users.id = lectures.uploader_id
   LEFT JOIN courses ON courses.id = lectures.course_id
+  LEFT JOIN programs ON programs.id = lectures.program_id
   LEFT JOIN lecture_files ON lecture_files.lecture_id = lectures.id
 `
 

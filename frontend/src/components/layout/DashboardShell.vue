@@ -35,10 +35,10 @@ onMounted(() => { if (isUser.value) notifications.load() })
         </RouterLink>
         <span class="account-chip"><span class="account-avatar" aria-hidden="true">{{ initials }}</span><span class="account-chip__name">{{ displayName }}</span></span>
         <button class="button button--ghost desktop-logout" type="button" @click="logout">ออกจากระบบ</button>
-        <button class="menu-button" type="button" :aria-expanded="menuOpen" aria-controls="mobile-dashboard-menu" aria-label="เปิดเมนู" @click="menuOpen = !menuOpen"><span></span><span></span><span></span></button>
+        <button class="menu-button" type="button" :aria-expanded="menuOpen" aria-controls="mobile-dashboard-menu" aria-label="เปิดเมนู" @click="menuOpen = !menuOpen" @keydown.esc="menuOpen = false"><span></span><span></span><span></span></button>
       </div>
       <Transition name="menu">
-        <div v-if="menuOpen" id="mobile-dashboard-menu" class="mobile-dashboard-menu">
+        <div v-if="menuOpen" id="mobile-dashboard-menu" class="mobile-dashboard-menu" @keydown.esc="menuOpen = false">
           <nav :aria-label="`${roleLabel} mobile navigation`"><RouterLink v-for="item in navItems" :key="item.to" :to="item.to">{{ item.label }}</RouterLink><RouterLink v-if="isUser" to="/dashboard/search">ค้นหา</RouterLink></nav>
           <button class="button button--ghost" type="button" @click="logout">ออกจากระบบ</button>
         </div>

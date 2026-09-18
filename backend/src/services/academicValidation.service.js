@@ -1,0 +1,6 @@
+export function validationError(message, status = 400) { const error = new Error(message); error.status = status; error.expose = true; return error }
+export function academicYear(value) { const year = String(value ?? '').trim(); if (!/^25\d{2}$/.test(year)) throw validationError('Academic year must be a four-digit Buddhist Era year'); return year }
+export function semester(value) { const term = String(value ?? '').trim(); if (!['1', '2', '3'].includes(term)) throw validationError('Semester must be 1, 2, or 3'); return term }
+export function section(value) { const result = String(value ?? '').trim(); if (result.length > 20 || /[\0\r\n]/.test(result)) throw validationError('Section must be at most 20 characters'); return result }
+export function teacherName(value) { const result = String(value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' '); if (result.length < 2 || result.length > 120 || /[\0\r\n]/.test(result)) throw validationError('Teacher name must contain 2-120 characters'); return result }
+export function email(value) { const result = String(value ?? '').trim(); if (result && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(result) || result.length > 254)) throw validationError('Teacher email is invalid'); return result }

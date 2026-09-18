@@ -12,6 +12,7 @@ describe('user dashboard navigation', () => {
   it('uses exactly the five Thai-first primary destinations', () => {
     const wrapper = mount(UserDashboardView, {
       global: {
+        mocks: { $route: { fullPath: '/dashboard/home' } },
         stubs: {
           DashboardShell: DashboardShellStub,
           RouterView: true

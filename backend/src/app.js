@@ -13,6 +13,7 @@ import uploadRequestRoutes from './routes/uploadRequest.routes.js'
 import notificationRoutes from './routes/notification.routes.js'
 import { courseRouter, documentRouter } from './routes/document.routes.js'
 import contributorRoutes from './routes/contributor.routes.js'
+import { curriculumRouter, suggestionRouter } from './routes/academic.routes.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -30,7 +31,11 @@ const allowedOrigins = configuredOrigins.length > 0
     ? []
     : ['http://127.0.0.1:5173', 'http://localhost:5173']
 
-app.use(helmet())
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: { frameSrc: ["'self'", 'blob:'] }
+  }
+}))
 app.use(cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) {
@@ -62,6 +67,8 @@ app.use('/api/admin', adminRoutes)
 app.use('/api/lectures', lectureRoutes)
 app.use('/api/upload-requests', uploadRequestRoutes)
 app.use('/api/notifications', notificationRoutes)
+app.use('/api/catalog/courses', curriculumRouter)
+app.use('/api/teacher-suggestions', suggestionRouter)
 app.use('/api/courses', courseRouter)
 app.use('/api/documents', documentRouter)
 app.use('/api/contributors', contributorRoutes)

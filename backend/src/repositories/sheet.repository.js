@@ -2,6 +2,7 @@ import { db } from '../data/database.js'
 
 function toSheet(row) {
   if (!row) return null
+  const teachers = db.prepare(`SELECT display_name name FROM document_teachers WHERE document_type='Sheet' AND document_id=? ORDER BY display_name`).all(row.id)
   return {
     id: row.id,
     title: row.title,
@@ -25,6 +26,10 @@ function toSheet(row) {
     contentHash: row.content_hash,
     viewCount: row.view_count,
     instructor: row.instructor_name,
+    description: row.description || '',
+    programCode: row.program_code || '',
+    programName: row.program_name_th || row.program_name_en || '',
+    teachers,
     hasFile: Boolean(row.has_file)
   }
 }
@@ -34,6 +39,7 @@ const sheetSelect = `
     sheets.id,
     sheets.title,
     sheets.subject,
+    sheets.description,
     sheets.status,
     sheets.created_at,
     sheets.download_count,
@@ -53,10 +59,12 @@ const sheetSelect = `
     sheets.content_hash AS content_hash,
     sheets.view_count AS view_count,
     upload_requests.instructor_name AS instructor_name,
+    programs.code AS program_code, programs.name_th AS program_name_th, programs.name_en AS program_name_en,
     CASE WHEN sheet_files.id IS NULL THEN 0 ELSE 1 END AS has_file
   FROM sheets
   JOIN users ON users.id = sheets.uploader_id
   LEFT JOIN courses ON courses.id = sheets.course_id
+  LEFT JOIN programs ON programs.id = sheets.program_id
   LEFT JOIN upload_requests ON upload_requests.id = sheets.source_request_id
   LEFT JOIN sheet_files ON sheet_files.sheet_id = sheets.id
 `

@@ -19,6 +19,22 @@ import {
 } from '../repositories/uploadRequest.repository.js'
 import { createNotification } from '../repositories/notification.repository.js'
 import { decodeUploadedFile, validateUploadPayload } from '../services/uploadValidation.service.js'
+import { createTeacher, listTeachers, updateTeacher, teacherOfferings, listOfferings, saveOffering, listTeacherSuggestions, reviewTeacherSuggestion, getCurriculumCourse } from '../repositories/academic.repository.js'
+import { academicYear, semester, section, teacherName, email, validationError } from '../services/academicValidation.service.js'
+import { courseImportToken, importCourseWorkbook, listCourseImports, previewCourseWorkbook } from '../data/importCourseOfferings.js'
+
+const COURSE_IMPORT_MAX_BYTES = 20 * 1024 * 1024
+
+function courseImportPayload(body) {
+  const fileName = String(body.fileName ?? '').trim()
+  const program = String(body.program ?? '').trim().toUpperCase()
+  if (!/\.xlsx$/i.test(fileName)) throw validationError('A .xlsx registrar workbook is required')
+  if (!['CS', 'IT'].includes(program)) throw validationError('Program must be CS or IT')
+  if (typeof body.fileData !== 'string' || !body.fileData.trim()) throw validationError('Workbook data is required')
+  const buffer = Buffer.from(body.fileData, 'base64')
+  if (!buffer.length || buffer.length > COURSE_IMPORT_MAX_BYTES) throw validationError('Workbook must be between 1 byte and 20 MB')
+  return { fileName, program, buffer }
+}
 
 export function getPendingSheets(_req, res) {
   res.json(findPendingSheets())
@@ -84,7 +100,11 @@ export function createUploadRequestAsAdmin(req, res, next) {
       documentType: validated.documentType,
       academicYear: validated.academicYear,
       semester: validated.semester,
-      instructorId: validated.instructorId,
+      instructorIds: validated.instructorIds,
+      courseOfferingId: validated.courseOfferingId,
+      programId: validated.programId,
+      description: validated.description,
+      suggestionIds: validated.suggestionIds,
       uploadDate: String(req.body.uploadDate ?? '').trim()
     })
 
@@ -125,8 +145,8 @@ function assertReviewable(request) {
 
 function assignCategoryIfPresent(id, body) {
   if (!body.courseId && !body.instructorId && !body.academicYear && !body.documentType && !body.semester) return null
-  if (!body.courseId || !body.instructorId || !body.academicYear || !body.documentType || !body.semester) {
-    const error = new Error('Course, document type, academic year, and instructor are required')
+  if (!body.courseId || !body.academicYear || !body.documentType || !body.semester) {
+    const error = new Error('Course, document type, academic year, and semester are required')
     error.status = 400
     throw error
   }
@@ -237,4 +257,82 @@ export function getStats(_req, res) {
     approvedRequests: countUploadRequestsByStatus('APPROVED'),
     rejectedRequests: countUploadRequestsByStatus('REJECTED')
   })
+}
+
+export async function previewCourseImport(req, res, next) {
+  try {
+    const payload = courseImportPayload(req.body)
+    const preview = await previewCourseWorkbook(payload.buffer, payload.program)
+    res.json({ ...preview, fileName: payload.fileName, previewToken: courseImportToken(payload.buffer, payload.program) })
+  } catch (error) { next(error) }
+}
+
+export async function confirmCourseImport(req, res, next) {
+  try {
+    const payload = courseImportPayload(req.body)
+    if (req.body.previewToken !== courseImportToken(payload.buffer, payload.program)) throw validationError('Import preview is missing or no longer matches this workbook', 409)
+    if (req.body.destructiveSync === true && req.body.confirmDestructive !== true) throw validationError('Explicit destructive synchronization confirmation is required', 409)
+    const result = await importCourseWorkbook(payload.buffer, payload.program, undefined, {
+      fileName: payload.fileName,
+      importedByUserId: req.user.id,
+      destructiveSync: req.body.destructiveSync === true
+    })
+    res.status(201).json(result)
+  } catch (error) { next(error) }
+}
+
+export function getCourseImportHistory(_req, res) {
+  res.json({ imports: listCourseImports() })
+}
+
+export function getTeachers(req, res) {
+  res.json({ teachers: listTeachers({ search: String(req.query.search ?? '').slice(0, 100), includeInactive: true }) })
+}
+export function addTeacher(req, res, next) {
+  try {
+    const teacher = createTeacher({ name: teacherName(req.body.name), email: email(req.body.email), active: req.body.active !== false })
+    if (!teacher) throw validationError('มีอาจารย์ชื่อนี้อยู่แล้ว', 409)
+    res.status(201).json(teacher)
+  } catch (error) { next(error) }
+}
+export function editTeacher(req, res, next) {
+  try {
+    if (req.body.active !== undefined && typeof req.body.active !== 'boolean') throw validationError('active must be a boolean')
+    const teacher = updateTeacher(req.params.id, { name: req.body.name === undefined ? undefined : teacherName(req.body.name), email: req.body.email === undefined ? undefined : email(req.body.email), active: req.body.active })
+    if (!teacher) throw validationError('ไม่พบอาจารย์หรือชื่อซ้ำกับรายการเดิม', 409)
+    res.json({ ...teacher, offerings: teacherOfferings(teacher.id) })
+  } catch (error) { next(error) }
+}
+export function getTeacherOfferings(req, res, next) {
+  const teacher = listTeachers({ includeInactive: true }).find(item => item.id === req.params.id)
+  if (!teacher) return next(validationError('Teacher not found', 404))
+  res.json({ teacher, offerings: teacherOfferings(teacher.id) })
+}
+export function getOfferings(_req, res) { res.json({ offerings: listOfferings() }) }
+export function putOffering(req, res, next) {
+  try {
+    const courseId = String(req.body.courseId ?? '')
+    if (!getCurriculumCourse(courseId)) throw validationError('Course not found', 404)
+    if (!Array.isArray(req.body.teacherIds) || req.body.teacherIds.some(id => typeof id !== 'string')) throw validationError('teacherIds must be an array')
+    const offering = saveOffering({ courseId, academicYear: academicYear(req.body.academicYear), semester: semester(req.body.semester), section: section(req.body.section), teacherIds: req.body.teacherIds })
+    if (!offering) throw validationError('One or more teachers do not exist')
+    res.json(offering)
+  } catch (error) { next(error) }
+}
+export function getTeacherSuggestions(req, res, next) {
+  const status = String(req.query.status ?? '').toUpperCase()
+  if (status && !['PENDING', 'APPROVED', 'REJECTED'].includes(status)) return next(validationError('Invalid suggestion status'))
+  res.json({ suggestions: listTeacherSuggestions(status) })
+}
+export function decideTeacherSuggestion(req, res, next) {
+  try {
+    const decision = req.body.decision || (req.body.approve === true ? 'APPROVE_GLOBAL' : req.body.approve === false ? 'REJECT' : '')
+    if (!['APPROVE_GLOBAL', 'APPROVE_DOCUMENT', 'REJECT'].includes(decision)) throw validationError('Invalid teacher suggestion decision')
+    const reason = String(req.body.reason ?? '').trim().slice(0, 500)
+    if (decision === 'REJECT' && !reason) throw validationError('Rejection reason is required')
+    const suggestion = reviewTeacherSuggestion({ id: req.params.id, adminId: req.user.id, decision, reason })
+    if (!suggestion) throw validationError('Suggestion not found or already reviewed', 409)
+    createNotification({ userId: suggestion.submittedByUserId, type: 'TEACHER_SUGGESTION', title: decision === 'REJECT' ? 'Teacher Suggestion Rejected' : 'Teacher Suggestion Approved', message: decision === 'APPROVE_GLOBAL' ? `ข้อมูล ${suggestion.teacherName} ได้รับการอนุมัติและเชื่อมกับรายวิชาแล้ว` : decision === 'APPROVE_DOCUMENT' ? `ข้อมูล ${suggestion.teacherName} ได้รับการอนุมัติเฉพาะเอกสารนี้` : `คำแนะนำข้อมูลอาจารย์ถูกปฏิเสธ: ${reason}` })
+    res.json(suggestion)
+  } catch (error) { next(error) }
 }

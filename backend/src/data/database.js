@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import crypto from 'node:crypto'
 import { hashPassword } from '../services/password.service.js'
 import { calculateContentFingerprint } from '../services/contentFingerprint.service.js'
+import { seedCurriculum } from './curriculumSeed.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -13,6 +14,18 @@ const dataDir = path.resolve(__dirname, '../../data')
 mkdirSync(dataDir, { recursive: true })
 
 export const db = new DatabaseSync(process.env.DATABASE_PATH || path.join(dataDir, 'csit-sheet.sqlite'))
+
+// Stars are saved interests, distinct from Helpful votes and contribution rewards.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS document_stars (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    document_type TEXT NOT NULL CHECK(document_type IN ('Sheet', 'Lecture')),
+    document_id TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(user_id, document_type, document_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_document_stars_document ON document_stars(document_type, document_id);
+`)
 
 db.exec(`
   PRAGMA foreign_keys = ON;
@@ -45,7 +58,7 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS courses (
     id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
+    name TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS instructors (
@@ -273,6 +286,182 @@ if (!sheetFileCols.includes('file_asset_id')) db.exec('ALTER TABLE sheet_files A
 const courseCols = db.prepare('PRAGMA table_info(courses)').all().map((c) => c.name)
 if (!courseCols.includes('code')) db.exec("ALTER TABLE courses ADD COLUMN code TEXT NOT NULL DEFAULT ''")
 if (!courseCols.includes('description')) db.exec("ALTER TABLE courses ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+if (!courseCols.includes('name_th')) db.exec("ALTER TABLE courses ADD COLUMN name_th TEXT NOT NULL DEFAULT ''")
+if (!courseCols.includes('name_en')) db.exec("ALTER TABLE courses ADD COLUMN name_en TEXT NOT NULL DEFAULT ''")
+if (!courseCols.includes('credits')) db.exec('ALTER TABLE courses ADD COLUMN credits INTEGER')
+if (!courseCols.includes('category')) db.exec("ALTER TABLE courses ADD COLUMN category TEXT NOT NULL DEFAULT ''")
+if (!courseCols.includes('updated_at')) db.exec("ALTER TABLE courses ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
+
+// Course titles are not identifiers: different course codes can legitimately share
+// the same registrar title (for example Seminar or Undergraduate Thesis).
+// Older databases created `name` as UNIQUE, so rebuild that small catalog table once
+// and retain code as the canonical unique key.
+const hasUniqueCourseName = db.prepare("SELECT name FROM pragma_index_list('courses') WHERE \"unique\"=1")
+  .all()
+  .some(index => db.prepare(`PRAGMA index_info('${String(index.name).replaceAll("'", "''")}')`).all().map(column => column.name).join(',') === 'name')
+if (hasUniqueCourseName) {
+  db.exec(`
+    PRAGMA foreign_keys = OFF;
+    BEGIN;
+    CREATE TABLE courses_without_name_unique (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      code TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      name_th TEXT NOT NULL DEFAULT '',
+      name_en TEXT NOT NULL DEFAULT '',
+      credits INTEGER,
+      category TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT ''
+    );
+    INSERT INTO courses_without_name_unique(id,name,code,description,name_th,name_en,credits,category,updated_at)
+      SELECT id,name,code,description,name_th,name_en,credits,category,updated_at FROM courses;
+    DROP TABLE courses;
+    ALTER TABLE courses_without_name_unique RENAME TO courses;
+    COMMIT;
+    PRAGMA foreign_keys = ON;
+  `)
+}
+
+const instructorCols = db.prepare('PRAGMA table_info(instructors)').all().map((c) => c.name)
+if (!instructorCols.includes('email')) db.exec("ALTER TABLE instructors ADD COLUMN email TEXT NOT NULL DEFAULT ''")
+if (!instructorCols.includes('active')) db.exec('ALTER TABLE instructors ADD COLUMN active INTEGER NOT NULL DEFAULT 1')
+if (!instructorCols.includes('normalized_name')) db.exec("ALTER TABLE instructors ADD COLUMN normalized_name TEXT NOT NULL DEFAULT ''")
+if (!instructorCols.includes('created_at')) db.exec("ALTER TABLE instructors ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
+if (!instructorCols.includes('updated_at')) db.exec("ALTER TABLE instructors ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS programs (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL UNIQUE CHECK(code IN ('CS', 'IT')),
+    name_th TEXT NOT NULL,
+    name_en TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS program_courses (
+    program_id TEXT NOT NULL REFERENCES programs(id) ON DELETE CASCADE,
+    course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    PRIMARY KEY(program_id, course_id)
+  );
+  CREATE TABLE IF NOT EXISTS course_offerings (
+    id TEXT PRIMARY KEY,
+    course_id TEXT NOT NULL,
+    academic_year TEXT NOT NULL,
+    semester TEXT NOT NULL CHECK (semester IN ('1', '2', '3')),
+    section TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(course_id, academic_year, semester, section),
+    FOREIGN KEY(course_id) REFERENCES courses(id)
+  );
+  CREATE TABLE IF NOT EXISTS course_offering_teachers (
+    offering_id TEXT NOT NULL,
+    teacher_id TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(offering_id, teacher_id),
+    FOREIGN KEY(offering_id) REFERENCES course_offerings(id) ON DELETE CASCADE,
+    FOREIGN KEY(teacher_id) REFERENCES instructors(id)
+  );
+  CREATE TABLE IF NOT EXISTS course_offering_programs (
+    offering_id TEXT NOT NULL REFERENCES course_offerings(id) ON DELETE CASCADE,
+    program_id TEXT NOT NULL REFERENCES programs(id) ON DELETE CASCADE,
+    PRIMARY KEY(offering_id, program_id)
+  );
+  CREATE TABLE IF NOT EXISTS course_imports (
+    id TEXT PRIMARY KEY,
+    file_name TEXT NOT NULL,
+    file_hash TEXT NOT NULL,
+    program_id TEXT NOT NULL REFERENCES programs(id),
+    imported_by_user_id TEXT REFERENCES users(id),
+    imported_rows INTEGER NOT NULL DEFAULT 0,
+    skipped_rows INTEGER NOT NULL DEFAULT 0,
+    error_rows INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL CHECK(status IN ('COMPLETED', 'FAILED')),
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    error_message TEXT NOT NULL DEFAULT '',
+    imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS teacher_suggestions (
+    id TEXT PRIMARY KEY,
+    teacher_name TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
+    course_id TEXT NOT NULL,
+    academic_year TEXT NOT NULL,
+    semester TEXT NOT NULL CHECK (semester IN ('1', '2', '3')),
+    section TEXT NOT NULL DEFAULT '',
+    submitted_by_user_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'APPROVED', 'REJECTED')),
+    reviewed_at TEXT,
+    reviewed_by_user_id TEXT,
+    rejection_reason TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(course_id) REFERENCES courses(id),
+    FOREIGN KEY(submitted_by_user_id) REFERENCES users(id),
+    FOREIGN KEY(reviewed_by_user_id) REFERENCES users(id)
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_teacher_suggestions_pending_unique
+    ON teacher_suggestions(submitted_by_user_id, course_id, academic_year, semester, section, normalized_name)
+    WHERE status = 'PENDING';
+  CREATE INDEX IF NOT EXISTS idx_offerings_period ON course_offerings(academic_year, semester, course_id);
+  CREATE INDEX IF NOT EXISTS idx_offering_teachers_teacher ON course_offering_teachers(teacher_id);
+  CREATE INDEX IF NOT EXISTS idx_course_imports_date ON course_imports(imported_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_suggestions_status ON teacher_suggestions(status, created_at);
+`)
+
+db.exec(`
+  INSERT OR IGNORE INTO programs(id, code, name_th, name_en) VALUES
+    ('program-cs', 'CS', 'วิทยาการคอมพิวเตอร์', 'Computer Science'),
+    ('program-it', 'IT', 'เทคโนโลยีสารสนเทศ', 'Information Technology');
+`)
+const offeringCols = db.prepare('PRAGMA table_info(course_offerings)').all().map((c) => c.name)
+if (!offeringCols.includes('source_course_code')) db.exec("ALTER TABLE course_offerings ADD COLUMN source_course_code TEXT NOT NULL DEFAULT ''")
+if (!offeringCols.includes('source_course_name')) db.exec("ALTER TABLE course_offerings ADD COLUMN source_course_name TEXT NOT NULL DEFAULT ''")
+
+for (const [table, columns] of [['upload_requests', uploadReqCols], ['lectures', lectureLinkCols], ['sheets', sheetCols]]) {
+  if (!columns.includes('course_offering_id')) db.exec(`ALTER TABLE ${table} ADD COLUMN course_offering_id TEXT`)
+  if (!columns.includes('instructor_id') && table !== 'upload_requests') db.exec(`ALTER TABLE ${table} ADD COLUMN instructor_id TEXT`)
+}
+for (const [table, columns] of [['upload_requests', uploadReqCols], ['lectures', lectureLinkCols], ['sheets', sheetCols]]) {
+  if (!columns.includes('program_id')) db.exec(`ALTER TABLE ${table} ADD COLUMN program_id TEXT`)
+  if (!columns.includes('description')) db.exec(`ALTER TABLE ${table} ADD COLUMN description TEXT NOT NULL DEFAULT ''`)
+}
+const suggestionCols = db.prepare('PRAGMA table_info(teacher_suggestions)').all().map((c) => c.name)
+if (!suggestionCols.includes('upload_request_id')) db.exec('ALTER TABLE teacher_suggestions ADD COLUMN upload_request_id TEXT')
+if (!suggestionCols.includes('existing_teacher_id')) db.exec('ALTER TABLE teacher_suggestions ADD COLUMN existing_teacher_id TEXT')
+if (!suggestionCols.includes('suggestion_type')) db.exec("ALTER TABLE teacher_suggestions ADD COLUMN suggestion_type TEXT NOT NULL DEFAULT 'NEW_TEACHER'")
+if (!suggestionCols.includes('note')) db.exec("ALTER TABLE teacher_suggestions ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+if (!suggestionCols.includes('approval_scope')) db.exec("ALTER TABLE teacher_suggestions ADD COLUMN approval_scope TEXT NOT NULL DEFAULT ''")
+db.exec(`
+  CREATE TABLE IF NOT EXISTS upload_request_teachers (
+    upload_request_id TEXT NOT NULL REFERENCES upload_requests(id) ON DELETE CASCADE,
+    teacher_id TEXT NOT NULL REFERENCES instructors(id),
+    PRIMARY KEY(upload_request_id, teacher_id)
+  );
+  CREATE TABLE IF NOT EXISTS document_teachers (
+    id TEXT PRIMARY KEY,
+    document_type TEXT NOT NULL CHECK(document_type IN ('Lecture','Sheet')),
+    document_id TEXT NOT NULL,
+    teacher_id TEXT REFERENCES instructors(id),
+    display_name TEXT NOT NULL,
+    source_suggestion_id TEXT REFERENCES teacher_suggestions(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_document_teachers_verified
+    ON document_teachers(document_type, document_id, teacher_id) WHERE teacher_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_document_teachers_suggestion
+    ON document_teachers(source_suggestion_id) WHERE source_suggestion_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_program_courses_course ON program_courses(course_id);
+  CREATE INDEX IF NOT EXISTS idx_offering_programs_program ON course_offering_programs(program_id, offering_id);
+  CREATE INDEX IF NOT EXISTS idx_request_teachers_teacher ON upload_request_teachers(teacher_id);
+`)
+db.exec(`
+  UPDATE instructors SET normalized_name = lower(trim(name)) WHERE normalized_name = '';
+  UPDATE instructors SET created_at = CURRENT_TIMESTAMP WHERE created_at = '';
+  UPDATE instructors SET updated_at = CURRENT_TIMESTAMP WHERE updated_at = '';
+  UPDATE courses SET name_en = name WHERE name_en = '';
+  UPDATE courses SET updated_at = CURRENT_TIMESTAMP WHERE updated_at = '';
+  DROP INDEX IF EXISTS idx_instructors_normalized_name;
+  CREATE INDEX IF NOT EXISTS idx_instructors_normalized_name ON instructors(normalized_name) WHERE normalized_name != '';
+`)
 
 // Self-healing migration: databases created before the nullable foreign keys were fixed
 // stored sheet_id / decided_by / upload_request_id as an empty string (the old column
@@ -506,6 +695,7 @@ const shouldSeed = process.env.RUN_DB_SEED === '1' || (
 )
 
 if (shouldSeed) {
+seedCurriculum(db)
 const userCount = db.prepare('SELECT COUNT(*) AS count FROM users').get().count
 
 if (userCount === 0) {
@@ -533,43 +723,4 @@ if (sheetCount === 0) {
   insertSheet.run('s4', 'Linear Algebra Review', 'MATH302', 'PENDING', '2026-07-15', 0, '3')
 }
 
-const courseCount = db.prepare('SELECT COUNT(*) AS count FROM courses').get().count
-
-if (courseCount === 0) {
-  const insertCourse = db.prepare('INSERT INTO courses (id, name, code, description) VALUES (?, ?, ?, ?)')
-  ;[
-    ['Algorithm', 'CS201', 'Algorithm design and analysis'],
-    ['Database', 'CS230', 'Database systems and data modelling'],
-    ['Operating System', 'CS250', 'Operating system concepts'],
-    ['Computer Network', 'CS260', 'Computer networking'],
-    ['Software Engineering', 'CS270', 'Software engineering practice']
-  ].forEach(([name, code, description], index) => insertCourse.run(`c${index + 1}`, name, code, description))
-}
-
-const instructorCount = db.prepare('SELECT COUNT(*) AS count FROM instructors').get().count
-
-if (instructorCount === 0) {
-  const insertInstructor = db.prepare('INSERT INTO instructors (id, name) VALUES (?, ?)')
-  ;['Dr. Somchai', 'Dr. Suda', 'Aj. Narin'].forEach((name, index) =>
-    insertInstructor.run(`i${index + 1}`, name)
-  )
-}
-
-const lectureCount = db.prepare('SELECT COUNT(*) AS count FROM lectures').get().count
-
-if (lectureCount === 0) {
-  const insertLecture = db.prepare(`
-    INSERT INTO lectures (id, title, subject, instructor, description, academic_year, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `)
-
-  ;[
-    ['l1', 'Introduction to Algorithms', 'CS201', 'Dr. Somchai', 'Complexity analysis, Big-O notation, and foundational algorithm design techniques.', '2026', '2026-06-02'],
-    ['l2', 'Relational Database Design', 'CS230', 'Dr. Suda', 'ER modelling, normalization, and writing effective SQL queries.', '2026', '2026-06-09'],
-    ['l3', 'Operating System Concepts', 'CS250', 'Aj. Narin', 'Processes, threads, scheduling, and memory management fundamentals.', '2026', '2026-06-16'],
-    ['l4', 'Computer Networks', 'CS260', 'Dr. Somchai', 'The OSI model, TCP/IP stack, routing, and application-layer protocols.', '2026', '2026-06-23'],
-    ['l5', 'Software Engineering Principles', 'CS270', 'Dr. Suda', 'Software development life cycle, requirements gathering, and agile practices.', '2026', '2026-06-30'],
-    ['l6', 'Data Structures', 'CS202', 'Aj. Narin', 'Lists, stacks, queues, trees, graphs, and hash tables with practical applications.', '2025', '2025-11-04']
-  ].forEach((row) => insertLecture.run(...row))
-}
 }
