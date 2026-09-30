@@ -11,7 +11,9 @@ function toUser(row) {
     role: row.role,
     avatarUrl: row.avatar_url,
     isVerified: Boolean(row.is_verified),
-    provider: row.provider
+    provider: row.provider,
+    program: row.program_code || '',
+    cohort: row.cohort || ''
   }
 }
 
@@ -28,8 +30,8 @@ export function findUserById(id) {
 
 export function createUser(user) {
   db.prepare(`
-    INSERT INTO users (id, username, display_name, email, password, role, avatar_url, is_verified, provider)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO users (id, username, display_name, email, password, role, avatar_url, is_verified, provider, program_code, cohort)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     user.id,
     user.username,
@@ -39,7 +41,9 @@ export function createUser(user) {
     user.role,
     user.avatarUrl ?? '',
     user.isVerified ? 1 : 0,
-    user.provider ?? 'local'
+    user.provider ?? 'local',
+    user.program ?? '',
+    user.cohort ?? ''
   )
 
   return findUserById(user.id)
@@ -56,6 +60,6 @@ export function countUsers() {
 
 export function listUsers() {
   return db
-    .prepare('SELECT id, username, display_name AS displayName, email, role FROM users ORDER BY username')
+    .prepare('SELECT id, username, display_name AS displayName, email, role, program_code AS program, cohort FROM users ORDER BY username')
     .all()
 }

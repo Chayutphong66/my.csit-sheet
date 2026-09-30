@@ -40,6 +40,8 @@ db.exec(`
     avatar_url TEXT DEFAULT '',
     is_verified INTEGER NOT NULL DEFAULT 1,
     provider TEXT NOT NULL DEFAULT 'local',
+    program_code TEXT NOT NULL DEFAULT '' CHECK(program_code IN ('', 'CS', 'IT')),
+    cohort TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -209,6 +211,8 @@ db.exec(`
 
 const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name)
 if (!userCols.includes('display_name')) db.exec("ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT ''")
+if (!userCols.includes('program_code')) db.exec("ALTER TABLE users ADD COLUMN program_code TEXT NOT NULL DEFAULT ''")
+if (!userCols.includes('cohort')) db.exec("ALTER TABLE users ADD COLUMN cohort TEXT NOT NULL DEFAULT ''")
 db.exec(`
   UPDATE users SET display_name = username WHERE trim(display_name) = '';
   CREATE INDEX IF NOT EXISTS idx_users_public_identity ON users(lower(username), lower(display_name));
@@ -256,6 +260,7 @@ if (!sheetCols.includes('file_hash')) db.exec("ALTER TABLE sheets ADD COLUMN fil
 if (!sheetCols.includes('updated_at')) db.exec("ALTER TABLE sheets ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
 if (!sheetCols.includes('content_hash')) db.exec("ALTER TABLE sheets ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''")
 if (!sheetCols.includes('view_count')) db.exec('ALTER TABLE sheets ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0')
+if (!sheetCols.includes('current_version_id')) db.exec('ALTER TABLE sheets ADD COLUMN current_version_id TEXT')
 
 const lectureLinkCols = db.prepare('PRAGMA table_info(lectures)').all().map((c) => c.name)
 if (!lectureLinkCols.includes('uploader_id')) {
@@ -277,6 +282,7 @@ if (!lectureLinkCols.includes('file_hash')) db.exec("ALTER TABLE lectures ADD CO
 if (!lectureLinkCols.includes('updated_at')) db.exec("ALTER TABLE lectures ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
 if (!lectureLinkCols.includes('content_hash')) db.exec("ALTER TABLE lectures ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''")
 if (!lectureLinkCols.includes('view_count')) db.exec('ALTER TABLE lectures ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0')
+if (!lectureLinkCols.includes('current_version_id')) db.exec('ALTER TABLE lectures ADD COLUMN current_version_id TEXT')
 
 const lectureFileCols = db.prepare('PRAGMA table_info(lecture_files)').all().map((c) => c.name)
 if (!lectureFileCols.includes('file_asset_id')) db.exec('ALTER TABLE lecture_files ADD COLUMN file_asset_id TEXT')
@@ -431,6 +437,34 @@ if (!suggestionCols.includes('suggestion_type')) db.exec("ALTER TABLE teacher_su
 if (!suggestionCols.includes('note')) db.exec("ALTER TABLE teacher_suggestions ADD COLUMN note TEXT NOT NULL DEFAULT ''")
 if (!suggestionCols.includes('approval_scope')) db.exec("ALTER TABLE teacher_suggestions ADD COLUMN approval_scope TEXT NOT NULL DEFAULT ''")
 db.exec(`
+  CREATE TABLE IF NOT EXISTS document_versions (
+    id TEXT PRIMARY KEY,
+    document_type TEXT NOT NULL CHECK(document_type IN ('Lecture', 'Sheet')),
+    document_id TEXT NOT NULL,
+    version_number INTEGER,
+    submitted_by TEXT NOT NULL REFERENCES users(id),
+    revision_type TEXT NOT NULL CHECK(revision_type IN ('INITIAL', 'ADD_CONTENT', 'CORRECT_CONTENT', 'REMOVE_INCORRECT', 'UPDATE_DOCUMENT', 'NEW_ACADEMIC_YEAR', 'OTHER', 'RESTORE')),
+    change_summary TEXT NOT NULL,
+    original_filename TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    file_asset_id TEXT NOT NULL REFERENCES file_assets(id),
+    status TEXT NOT NULL CHECK(status IN ('PENDING', 'APPROVED', 'REJECTED')),
+    reviewed_by TEXT REFERENCES users(id),
+    reviewed_at TEXT,
+    review_note TEXT NOT NULL DEFAULT '',
+    source_version_id TEXT REFERENCES document_versions(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_document_versions_document ON document_versions(document_type, document_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_document_versions_status ON document_versions(status, created_at);
+  CREATE INDEX IF NOT EXISTS idx_document_versions_submitter ON document_versions(submitted_by, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_document_versions_sha256 ON document_versions(sha256);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_document_versions_approved_number
+    ON document_versions(document_type, document_id, version_number)
+    WHERE status = 'APPROVED' AND version_number IS NOT NULL;
+
   CREATE TABLE IF NOT EXISTS upload_request_teachers (
     upload_request_id TEXT NOT NULL REFERENCES upload_requests(id) ON DELETE CASCADE,
     teacher_id TEXT NOT NULL REFERENCES instructors(id),
@@ -512,11 +546,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_lecture_files_asset ON lecture_files(file_asset_id);
   CREATE INDEX IF NOT EXISTS idx_sheet_files_asset ON sheet_files(file_asset_id);
 
-  CREATE TRIGGER IF NOT EXISTS protect_referenced_file_asset_delete
+  DROP TRIGGER IF EXISTS protect_referenced_file_asset_delete;
+  CREATE TRIGGER protect_referenced_file_asset_delete
   BEFORE DELETE ON file_assets
   WHEN EXISTS (SELECT 1 FROM upload_requests WHERE file_asset_id = OLD.id)
     OR EXISTS (SELECT 1 FROM lecture_files WHERE file_asset_id = OLD.id)
     OR EXISTS (SELECT 1 FROM sheet_files WHERE file_asset_id = OLD.id)
+    OR EXISTS (SELECT 1 FROM document_versions WHERE file_asset_id = OLD.id)
   BEGIN
     SELECT RAISE(ABORT, 'file asset is still referenced');
   END;
@@ -684,6 +720,45 @@ try {
     SET content_hash = COALESCE((SELECT content_hash FROM file_assets WHERE id = upload_requests.file_asset_id), content_hash)
     WHERE file_asset_id IS NOT NULL;
   `)
+  db.exec('COMMIT')
+} catch (error) {
+  db.exec('ROLLBACK')
+  throw error
+}
+
+// Existing public rows are canonical documents. Backfill each one as an immutable
+// approved v1 that references its existing shared FileAsset without copying bytes.
+db.exec('BEGIN')
+try {
+  const backfillVersion = ({ documentType, table, fileTable, foreignKey }) => {
+    const rows = db.prepare(`
+      SELECT documents.id document_id, documents.uploader_id, documents.created_at,
+             files.original_filename, files.mime_type, files.file_size, files.file_asset_id,
+             assets.binary_hash
+      FROM ${table} documents
+      JOIN ${fileTable} files ON files.${foreignKey} = documents.id
+      JOIN file_assets assets ON assets.id = files.file_asset_id
+      WHERE documents.status = 'APPROVED'
+        AND NOT EXISTS (SELECT 1 FROM document_versions versions WHERE versions.document_type=? AND versions.document_id=documents.id)
+    `).all(documentType)
+    const insert = db.prepare(`INSERT INTO document_versions(
+      id,document_type,document_id,version_number,submitted_by,revision_type,change_summary,
+      original_filename,mime_type,file_size,sha256,file_asset_id,status,reviewed_at,created_at
+    ) VALUES(?,?,?,1,?,'INITIAL','Initial published version',?,?,?,?,?,'APPROVED',?,?)`)
+    const setCurrent = db.prepare(`UPDATE ${table} SET current_version_id=? WHERE id=?`)
+    for (const row of rows) {
+      const versionId = crypto.randomUUID()
+      insert.run(versionId, documentType, row.document_id, row.uploader_id, row.original_filename,
+        row.mime_type, row.file_size, row.binary_hash, row.file_asset_id, row.created_at, row.created_at)
+      setCurrent.run(versionId, row.document_id)
+    }
+    db.prepare(`UPDATE ${table} SET current_version_id=(
+      SELECT id FROM document_versions WHERE document_type=? AND document_id=${table}.id AND status='APPROVED'
+      ORDER BY version_number DESC LIMIT 1
+    ) WHERE status='APPROVED' AND current_version_id IS NULL`).run(documentType)
+  }
+  backfillVersion({ documentType: 'Lecture', table: 'lectures', fileTable: 'lecture_files', foreignKey: 'lecture_id' })
+  backfillVersion({ documentType: 'Sheet', table: 'sheets', fileTable: 'sheet_files', foreignKey: 'sheet_id' })
   db.exec('COMMIT')
 } catch (error) {
   db.exec('ROLLBACK')

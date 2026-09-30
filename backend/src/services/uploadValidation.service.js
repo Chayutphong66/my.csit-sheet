@@ -28,7 +28,7 @@ function validationError(message, status = 400) {
   return error
 }
 
-function validatedFilename(value) {
+export function validatedFilename(value) {
   const filename = String(value ?? '').trim()
   if (!filename || filename.length > 255 || /[\0\r\n]/.test(filename)) {
     throw validationError('File name is invalid')
@@ -39,19 +39,22 @@ function validatedFilename(value) {
   return filename
 }
 
+export function validateFileMetadata(body) {
+  const fileName = validatedFilename(body?.fileName)
+  const extension = fileName.includes('.') ? `.${fileName.split('.').pop().toLowerCase()}` : ''
+  const expectedMime = ALLOWED_FILE_TYPES.get(extension)
+  const fileType = String(body?.fileType ?? '').trim().toLowerCase()
+  if (!expectedMime || fileType !== expectedMime) throw validationError('Unsupported file type or mismatched file extension')
+  if (!body?.fileData) throw validationError('File content is required')
+  return { fileName, fileType }
+}
+
 export function validateUploadPayload(body) {
   const title = String(body?.title ?? '').trim()
   if (!title || title.length > 200) {
     throw validationError('Document title is required and must be at most 200 characters')
   }
-  const fileName = validatedFilename(body?.fileName)
-  const extension = fileName.includes('.') ? `.${fileName.split('.').pop().toLowerCase()}` : ''
-  const expectedMime = ALLOWED_FILE_TYPES.get(extension)
-  const fileType = String(body?.fileType ?? '').trim().toLowerCase()
-  if (!expectedMime || fileType !== expectedMime) {
-    throw validationError('Unsupported file type or mismatched file extension')
-  }
-  if (!body?.fileData) throw validationError('File content is required')
+  const { fileName, fileType } = validateFileMetadata(body)
 
   const documentType = normalizeDocumentType(body.documentType)
   if (!documentType) throw validationError('Document type must be Lecture or Sheet')

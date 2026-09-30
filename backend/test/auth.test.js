@@ -12,6 +12,7 @@ mkdirSync(path.dirname(process.env.DATABASE_PATH), { recursive: true })
 
 const { default: app } = await import('../src/app.js')
 const { db } = await import('../src/data/database.js')
+const { supportedCohorts } = await import('../src/services/communityIdentity.service.js')
 
 const server = app.listen(0)
 const baseUrl = `http://127.0.0.1:${server.address().port}/api`
@@ -57,15 +58,19 @@ test('registered passwords are hashed and login issues an httpOnly refresh cooki
   const credentials = {
     username: 'secureuser',
     email: 'secureuser@example.com',
-    password: 'CorrectHorse123'
+    password: 'CorrectHorse123',
+    program: 'CS',
+    cohort: '66'
   }
 
   const registerResult = await request('/auth/register', { body: credentials })
   assert.equal(registerResult.response.status, 201)
 
-  const row = db.prepare('SELECT password FROM users WHERE username = ?').get(credentials.username)
+  const row = db.prepare('SELECT password, program_code, cohort FROM users WHERE username = ?').get(credentials.username)
   assert.notEqual(row.password, credentials.password)
   assert.match(row.password, /^scrypt\$/)
+  assert.equal(row.program_code, 'CS')
+  assert.equal(row.cohort, '66')
 
   const loginResult = await request('/auth/login', {
     body: { usernameOrEmail: credentials.email, password: credentials.password }
@@ -74,9 +79,31 @@ test('registered passwords are hashed and login issues an httpOnly refresh cooki
   assert.equal(loginResult.response.status, 200)
   assert.ok(loginResult.data.accessToken)
   assert.equal(loginResult.data.user.password, undefined)
+  assert.equal(loginResult.data.user.program, 'CS')
+  assert.equal(loginResult.data.user.cohort, '66')
   assert.match(loginResult.cookie, /HttpOnly/i)
   assert.match(loginResult.cookie, /SameSite=Lax/i)
   assert.match(loginResult.cookie, /Path=\/api\/auth/i)
+})
+
+test('registration requires a supported program and current Buddhist Era cohort', async () => {
+  const base = { username: 'identityuser', email: 'identity@example.com', password: 'CorrectHorse123' }
+  assert.equal((await request('/auth/register', { body: { ...base, cohort: '66' } })).response.status, 400)
+  assert.equal((await request('/auth/register', { body: { ...base, program: 'IT' } })).response.status, 400)
+  assert.equal((await request('/auth/register', { body: { ...base, program: 'ABC', cohort: '66' } })).response.status, 400)
+  assert.equal((await request('/auth/register', { body: { ...base, program: 'IT', cohort: '99' } })).response.status, 400)
+  assert.equal((await request('/auth/register', { body: { ...base, program: 'IT', cohort: '<script>' } })).response.status, 400)
+
+  const valid = await request('/auth/register', { body: { ...base, program: 'IT', cohort: '69' } })
+  assert.equal(valid.response.status, 201)
+  const identity = db.prepare('SELECT program_code, cohort FROM users WHERE username=?').get(base.username)
+  assert.equal(identity.program_code, 'IT')
+  assert.equal(identity.cohort, '69')
+})
+
+test('cohort options grow automatically with the Buddhist Era year', () => {
+  assert.deepEqual(supportedCohorts(new Date('2026-06-01T00:00:00Z')), ['66', '67', '68', '69'])
+  assert.deepEqual(supportedCohorts(new Date('2027-06-01T00:00:00Z')), ['66', '67', '68', '69', '70'])
 })
 
 test('demo users still log in after hashed seed migration', async () => {

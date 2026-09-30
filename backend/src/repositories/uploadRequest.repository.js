@@ -5,6 +5,7 @@ import { createLectureFile, lectureHasFile } from './lectureFile.repository.js'
 import { createSheetFile, sheetHasFile } from './sheetFile.repository.js'
 import { getOrCreateFileAsset } from './fileAsset.repository.js'
 import { calculateContentFingerprint } from '../services/contentFingerprint.service.js'
+import { ensureInitialVersion } from './documentVersion.repository.js'
 import {
   calculateContributionScore,
   contributionBadges,
@@ -36,6 +37,8 @@ const requestSelect = `
       users.username AS username,
       COALESCE(NULLIF(users.display_name, ''), users.username) AS display_name,
       users.avatar_url AS avatar_url,
+      users.program_code AS contributor_program,
+      users.cohort AS contributor_cohort,
     users.email AS email,
     admin.username AS decided_by_username,
     programs.code AS program_code, programs.name_th AS program_name_th, programs.name_en AS program_name_en,
@@ -57,6 +60,8 @@ function toUploadRequest(row) {
       username: row.username,
       displayName: row.display_name || row.username,
       avatarUrl: row.avatar_url || '',
+      contributorProgram: row.contributor_program || '',
+      contributorCohort: row.contributor_cohort || '',
     email: row.email,
     lectureId: row.lecture_id,
     sheetId: row.sheet_id,
@@ -237,9 +242,12 @@ export function findContributionSummaryByUserId(userId, limit = 5) {
   `).all(userId, userId)
   const impactByRequest = new Map(recentImpactRows.map((row) => [row.source_request_id, row]))
   const published = Number(totals.rewarded_published || 0)
+  const revisionTotals = db.prepare(`SELECT COUNT(*) accepted_revisions,COUNT(DISTINCT document_type || ':' || document_id) contributed_documents FROM document_versions WHERE submitted_by=? AND status='APPROVED' AND revision_type NOT IN ('INITIAL','RESTORE')`).get(userId)
+  const acceptedRevisions = Number(revisionTotals.accepted_revisions || 0)
+  const contributedDocuments = Number(revisionTotals.contributed_documents || 0)
   const qualifiedDownloads = Number(impact.qualified_downloads || 0)
   const helpful = Number(impact.helpful || 0)
-  const contributionScore = calculateContributionScore({ published, qualifiedDownloads, helpful })
+  const contributionScore = calculateContributionScore({ published: published + acceptedRevisions, qualifiedDownloads, helpful })
   return {
     total: Number(totals.total || 0),
     lectures: Number(totals.lectures || 0),
@@ -250,9 +258,11 @@ export function findContributionSummaryByUserId(userId, limit = 5) {
     totalViews: Number(impact.total_views || 0),
     totalDownloads: Number(impact.total_downloads || 0),
     helpful,
+    acceptedRevisions,
+    contributions: published + acceptedRevisions,
     contributionScore,
     contributorLevel: contributorLevel(contributionScore),
-    badges: contributionBadges({ published, qualifiedDownloads, helpful }),
+    badges: contributionBadges({ published: published + acceptedRevisions, acceptedRevisions, contributedDocuments, qualifiedDownloads, helpful }),
     recent: findUploadRequestsByUserId(userId).slice(0, limit).map((request) => {
       const row = impactByRequest.get(request.id)
       return {
@@ -285,10 +295,16 @@ export function findUploadRequestFileById(id) {
   return { fileName: row.file_name, fileType: row.file_type, fileData: row.file_data, fileAssetId: row.file_asset_id }
 }
 
-export function findAllUploadRequests() {
+export function findAllUploadRequests(reviewStatus = '') {
+  const normalized = String(reviewStatus || '').trim().toUpperCase()
   return db
-    .prepare(`${requestSelect} ORDER BY upload_requests.created_at DESC`)
-    .all()
+    .prepare(`${requestSelect}
+      WHERE @status = ''
+        OR (@status = 'PENDING' AND upload_requests.status IN ('PENDING','PROCESSING','APPROVED'))
+        OR (@status = 'APPROVED' AND upload_requests.status = 'COMPLETED')
+        OR (@status = 'REJECTED' AND upload_requests.status IN ('REJECTED','FAILED'))
+      ORDER BY COALESCE(upload_requests.decided_at, upload_requests.created_at) DESC`)
+    .all({ status: normalized })
     .map(toUploadRequest)
 }
 
@@ -519,6 +535,11 @@ export function publishUploadRequest(id, { adminId = '' } = {}) {
           fileData: Buffer.alloc(0)
         })
       }
+      ensureInitialVersion({
+        documentType: 'Lecture', documentId: lecture.id, submittedBy: request.userId,
+        originalFileName: file.fileName || request.fileName || 'download', mimeType: file.fileType || request.fileType || 'application/octet-stream',
+        fileSize: request.fileSize, sha256: request.fileHash, fileAssetId: file.fileAssetId
+      })
       db.prepare('UPDATE lectures SET instructor_id = ?, course_offering_id = ? WHERE id = ?')
         .run(request.instructorId || null, request.courseOfferingId || null, lecture.id)
       db.prepare('UPDATE lectures SET program_id=? WHERE id=?').run(request.programId, lecture.id)
@@ -565,6 +586,11 @@ export function publishUploadRequest(id, { adminId = '' } = {}) {
           fileData: Buffer.alloc(0)
         })
       }
+      ensureInitialVersion({
+        documentType: 'Sheet', documentId: sheetId, submittedBy: request.userId,
+        originalFileName: file.fileName || request.fileName || 'download', mimeType: file.fileType || request.fileType || 'application/octet-stream',
+        fileSize: request.fileSize, sha256: request.fileHash, fileAssetId: file.fileAssetId
+      })
 
       db.prepare(`
         UPDATE upload_requests

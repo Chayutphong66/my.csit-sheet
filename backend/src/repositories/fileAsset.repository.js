@@ -50,8 +50,9 @@ export function countFileAssetReferences(id) {
     SELECT
       (SELECT COUNT(*) FROM upload_requests WHERE file_asset_id = ?) +
       (SELECT COUNT(*) FROM lecture_files WHERE file_asset_id = ?) +
-      (SELECT COUNT(*) FROM sheet_files WHERE file_asset_id = ?) AS count
-  `).get(id, id, id)
+      (SELECT COUNT(*) FROM sheet_files WHERE file_asset_id = ?) +
+      (SELECT COUNT(*) FROM document_versions WHERE file_asset_id = ?) AS count
+  `).get(id, id, id, id)
   return Number(row.count)
 }
 
@@ -61,5 +62,6 @@ export function deleteOrphanFileAssets() {
     WHERE NOT EXISTS (SELECT 1 FROM upload_requests WHERE upload_requests.file_asset_id = file_assets.id)
       AND NOT EXISTS (SELECT 1 FROM lecture_files WHERE lecture_files.file_asset_id = file_assets.id)
       AND NOT EXISTS (SELECT 1 FROM sheet_files WHERE sheet_files.file_asset_id = file_assets.id)
+      AND NOT EXISTS (SELECT 1 FROM document_versions WHERE document_versions.file_asset_id = file_assets.id)
   `).run().changes
 }

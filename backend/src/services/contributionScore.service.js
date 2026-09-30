@@ -21,10 +21,13 @@ export function contributorLevel(score) {
   return LEVELS.find((level) => Number(score) >= level.minimum).name
 }
 
-export function contributionBadges({ published = 0, qualifiedDownloads = 0, helpful = 0 }) {
+export function contributionBadges({ published = 0, acceptedRevisions = 0, contributedDocuments = 0, qualifiedDownloads = 0, helpful = 0 }) {
   const badges = []
   if (published >= 1) badges.push('First Contribution')
   if (published >= 5) badges.push('5 Contributions')
+  if (acceptedRevisions >= 5) badges.push('Contributor')
+  if (acceptedRevisions >= 10) badges.push('Active Contributor')
+  if (contributedDocuments >= 3) badges.push('Community Helper')
   if (qualifiedDownloads >= 100) badges.push('100 Downloads')
   if (helpful >= 10) badges.push('Helpful Contributor')
   return badges

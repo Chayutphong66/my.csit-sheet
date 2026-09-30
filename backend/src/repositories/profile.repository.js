@@ -24,6 +24,12 @@ export function setStar(userId, type, id, starred) {
 
 export function profileActivity(userId, viewerId, documents) {
   const events = documents.map(document => ({ kind: 'Published', title: document.title, date: document.createdAt, documentType: document.documentType, documentId: document.id }))
+  events.push(...db.prepare(`SELECT versions.document_type,versions.document_id,versions.version_number,versions.created_at,
+    COALESCE(lectures.title,sheets.title,'Document revision') title FROM document_versions versions
+    LEFT JOIN lectures ON versions.document_type='Lecture' AND lectures.id=versions.document_id
+    LEFT JOIN sheets ON versions.document_type='Sheet' AND sheets.id=versions.document_id
+    WHERE versions.submitted_by=? AND versions.status='APPROVED' AND versions.revision_type NOT IN ('INITIAL','RESTORE')`)
+    .all(userId).map(row => ({ kind: `Revision v${row.version_number}`, title: row.title, date: row.created_at, documentType: row.document_type, documentId: row.document_id })))
   if (userId === viewerId) {
     events.push(...db.prepare('SELECT id, title, created_at FROM upload_requests WHERE user_id = ?').all(userId).map(row => ({ kind: 'Uploaded', title: row.title, date: row.created_at, requestId: row.id })))
   }

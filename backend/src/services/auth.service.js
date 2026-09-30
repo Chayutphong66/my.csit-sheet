@@ -37,7 +37,7 @@ export function login({ usernameOrEmail, password }) {
   }
 }
 
-export function register({ username, displayName, email, password }) {
+export function register({ username, displayName, email, password, program, cohort }) {
   if (findUserByEmailOrUsername(email) || findUserByEmailOrUsername(username)) {
     const error = new Error('อีเมลหรือชื่อผู้ใช้นี้ถูกใช้แล้ว')
     error.status = 409
@@ -53,7 +53,9 @@ export function register({ username, displayName, email, password }) {
     role: 'USER',
     avatarUrl: '',
     isVerified: true,
-    provider: 'local'
+    provider: 'local',
+    program,
+    cohort
   })
 
   return { message: 'สมัครสมาชิกสำเร็จ กรุณาเข้าสู่ระบบ' }

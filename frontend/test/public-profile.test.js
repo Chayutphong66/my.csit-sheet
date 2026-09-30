@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 const profile = vi.hoisted(() => vi.fn().mockResolvedValue({
   username: 'user1', displayName: 'สมชาย นักแบ่งปัน', avatarUrl: '', contributorLevel: 'Contributor',
+  program: 'CS', cohort: '67',
   contributionScore: 27, publishedCount: 1, lectureCount: 1, sheetCount: 0,
   totalDownloads: 1, totalViews: 1, helpful: 1, badges: ['First Contribution'], documents: []
 }))
@@ -19,6 +20,8 @@ describe('Public contributor profile', () => {
     expect(profile).toHaveBeenCalledWith('user1')
     expect(wrapper.text()).toContain('สมชาย นักแบ่งปัน')
     expect(wrapper.text()).toContain('@user1')
+    expect(wrapper.text()).toContain('วิทยาการคอมพิวเตอร์ (CS)')
+    expect(wrapper.text()).toContain('รุ่น 67')
     expect(wrapper.text()).toContain('Contributor · 27 คะแนน')
     expect(wrapper.text()).toContain('First Contribution')
     expect(wrapper.text()).not.toContain('อีเมลส่วนตัว')

@@ -78,6 +78,16 @@ The server calculates binary SHA-256 and compares both PENDING requests and APPR
 
 Canonical bytes live once in `file_assets`; requests and public file rows keep references. Publication is transactional and does not copy the BLOB. A database trigger blocks deletion of referenced assets, and `db:cleanup-files` removes only zero-reference rows.
 
+The upload form performs the same duplicate checks as a read-only preflight. Exact matches are stopped before a request is created; metadata/content matches show the existing canonical document and let the user open it, submit a revision, or explicitly continue with a new document.
+
+## Document versions
+
+Each approved Lecture or Sheet is one canonical document with an immutable version history. Existing public documents are backfilled as version 1 during `db:migrate` without copying their file bytes. Search and course pages continue to return one canonical result and the stable legacy document URL always serves its current approved version.
+
+Authenticated users can propose a revision with a change type, summary, and file. A proposal remains private and does not change the public document until an admin approves it. Approval assigns the next sequential version and atomically moves the canonical current-version pointer; rejection preserves the proposal and review reason. Admin restore creates a new approved version referencing the selected historical asset, so history is never rewritten or deleted.
+
+Approved non-initial revisions award the same 20 contribution points as an accepted original submission. Restores and duplicate bytes do not award points. Contributor profiles expose accepted revision activity, program/cohort metadata, and document-level contribution counts without exposing private account fields.
+
 ## Production deployment
 
 ```bash

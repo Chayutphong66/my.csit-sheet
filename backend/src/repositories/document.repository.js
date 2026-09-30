@@ -2,7 +2,8 @@ import { db } from '../data/database.js'
 
 const publicDocuments = `
   SELECT 'Lecture' AS document_type, lectures.id, lectures.title,
-         lecture_files.original_filename AS file_name, lecture_files.mime_type,
+         COALESCE((SELECT original_filename FROM document_versions WHERE id=lectures.current_version_id),lecture_files.original_filename) AS file_name,
+         COALESCE((SELECT mime_type FROM document_versions WHERE id=lectures.current_version_id),lecture_files.mime_type) AS mime_type,
          lectures.course_id, courses.code AS course_code, courses.name AS course_name,
          courses.description AS course_description, lectures.academic_year, lectures.semester,
          COALESCE(NULLIF((SELECT group_concat(display_name, ', ') FROM document_teachers dt WHERE dt.document_type='Lecture' AND dt.document_id=lectures.id), ''), NULLIF(lectures.instructor,''), 'ยังไม่ทราบอาจารย์') AS instructor,
@@ -13,7 +14,12 @@ const publicDocuments = `
          lectures.view_count, lectures.download_count,
          (SELECT COUNT(*) FROM document_helpful_votes votes
           WHERE votes.document_type = 'Lecture' AND votes.document_id = lectures.id) AS helpful_count,
-         lectures.created_at, lectures.updated_at, lectures.description
+         lectures.created_at, lectures.updated_at, lectures.description,
+         lectures.current_version_id,
+         COALESCE((SELECT version_number FROM document_versions WHERE id=lectures.current_version_id),1) AS current_version_number,
+         (SELECT version_users.username FROM document_versions versions JOIN users version_users ON version_users.id=versions.submitted_by WHERE versions.id=lectures.current_version_id) AS current_contributor_username,
+         (SELECT COALESCE(NULLIF(version_users.display_name,''),version_users.username) FROM document_versions versions JOIN users version_users ON version_users.id=versions.submitted_by WHERE versions.id=lectures.current_version_id) AS current_contributor_display_name,
+         (SELECT version_users.avatar_url FROM document_versions versions JOIN users version_users ON version_users.id=versions.submitted_by WHERE versions.id=lectures.current_version_id) AS current_contributor_avatar_url
   FROM lectures
   JOIN lecture_files ON lecture_files.lecture_id = lectures.id
   JOIN courses ON courses.id = lectures.course_id
@@ -21,7 +27,9 @@ const publicDocuments = `
   LEFT JOIN users ON users.id = lectures.uploader_id
   WHERE lectures.status = 'APPROVED'
   UNION ALL
-  SELECT 'Sheet', sheets.id, sheets.title, sheet_files.original_filename, sheet_files.mime_type,
+  SELECT 'Sheet', sheets.id, sheets.title,
+         COALESCE((SELECT original_filename FROM document_versions WHERE id=sheets.current_version_id),sheet_files.original_filename),
+         COALESCE((SELECT mime_type FROM document_versions WHERE id=sheets.current_version_id),sheet_files.mime_type),
          sheets.course_id, courses.code, courses.name, courses.description,
          sheets.academic_year, sheets.semester,
          COALESCE(NULLIF((SELECT group_concat(display_name, ', ') FROM document_teachers dt WHERE dt.document_type='Sheet' AND dt.document_id=sheets.id), ''), 'ยังไม่ทราบอาจารย์'),
@@ -30,7 +38,12 @@ const publicDocuments = `
          sheets.view_count, sheets.download_count,
          (SELECT COUNT(*) FROM document_helpful_votes votes
           WHERE votes.document_type = 'Sheet' AND votes.document_id = sheets.id),
-         sheets.created_at, sheets.updated_at, sheets.description
+         sheets.created_at, sheets.updated_at, sheets.description,
+         sheets.current_version_id,
+         COALESCE((SELECT version_number FROM document_versions WHERE id=sheets.current_version_id),1),
+         (SELECT version_users.username FROM document_versions versions JOIN users version_users ON version_users.id=versions.submitted_by WHERE versions.id=sheets.current_version_id),
+         (SELECT COALESCE(NULLIF(version_users.display_name,''),version_users.username) FROM document_versions versions JOIN users version_users ON version_users.id=versions.submitted_by WHERE versions.id=sheets.current_version_id),
+         (SELECT version_users.avatar_url FROM document_versions versions JOIN users version_users ON version_users.id=versions.submitted_by WHERE versions.id=sheets.current_version_id)
   FROM sheets
   JOIN sheet_files ON sheet_files.sheet_id = sheets.id
   JOIN courses ON courses.id = sheets.course_id
@@ -67,6 +80,11 @@ function mapDocument(row) {
     helpfulCount: Number(row.helpful_count || 0),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    currentVersionId: row.current_version_id || null,
+    currentVersionNumber: Number(row.current_version_number || 1),
+    currentContributorUsername: row.current_contributor_username || row.uploader_username,
+    currentContributorDisplayName: row.current_contributor_display_name || row.uploader_display_name || row.uploader_username,
+    currentContributorAvatarUrl: row.current_contributor_avatar_url || row.uploader_avatar_url || '',
     hasFile: true
   }
 }

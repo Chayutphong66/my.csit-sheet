@@ -8,6 +8,7 @@ const emit = defineEmits(['uploaded'])
 const metadata = ref({ programs: [], academicYears: [], semesters: ['1', '2'], documentTypes: [] })
 const teachers = ref([]), suggestions = ref([]), loadingMetadata = ref(true), loadingCourses = ref(false), loadingTeachers = ref(false), submitting = ref(false)
 const message = ref(''), error = ref(''), teacherError = ref(''), fileInput = ref(null), suggestionOpen = ref(false)
+const duplicateMatches = ref([]), exactDuplicate = ref(false)
 const codeText = ref(''), nameText = ref(''), activeSearch = ref(''), activeIndex = ref(0), selectedCourse = ref(null)
 let teacherGeneration = 0, searchGeneration = 0, searchTimer
 const emptyForm = () => ({ title:'', description:'', fileName:'', fileSize:0, fileType:'', fileData:'', programId:'', courseId:'', documentType:'', academicYear:'', semester:'', instructorIds:[], suggestionIds:[] })
@@ -29,6 +30,10 @@ watch(() => form.value.courseId, async courseId => {
   catch { if (current === teacherGeneration) teacherError.value = 'โหลดข้อมูลผู้สอนไม่สำเร็จ' }
   finally { if (current === teacherGeneration) loadingTeachers.value = false }
 })
+watch(() => [form.value.title, form.value.fileData, form.value.courseId, form.value.documentType, form.value.academicYear, form.value.semester], () => {
+  duplicateMatches.value = []
+  exactDuplicate.value = false
+})
 onBeforeUnmount(() => { teacherGeneration++; searchGeneration++; clearTimeout(searchTimer) })
 
 function clearCourse() { selectedCourse.value=null; form.value.courseId=''; form.value.instructorIds=[]; codeText.value=''; nameText.value=''; suggestions.value=[]; activeSearch.value=''; teacherGeneration++ }
@@ -44,12 +49,12 @@ function navigate(event){if(!suggestions.value.length)return;if(event.key==='Arr
 function formatFileSize(bytes){return !bytes?'0 bytes':bytes<1048576?`${(bytes/1024).toFixed(1)} KB`:`${(bytes/1048576).toFixed(1)} MB`}
 function resetFile(){Object.assign(form.value,{fileName:'',fileSize:0,fileType:'',fileData:''});if(fileInput.value)fileInput.value.value=''}
 function onFileChange(event){error.value='';const file=event.target.files?.[0];if(!file)return;if(file.size>MAX_FILE_BYTES){error.value='ไฟล์มีขนาดเกิน 20 MB';resetFile();return}form.value.fileName=file.name;form.value.fileSize=file.size;const ext=file.name.split('.').pop()?.toLowerCase();form.value.fileType=file.type&&file.type!=='application/octet-stream'?file.type:MIME_BY_EXTENSION[ext]||'';const reader=new FileReader();reader.onload=()=>{form.value.fileData=String(reader.result).split(',')[1]??''};reader.onerror=()=>{error.value='ไม่สามารถอ่านไฟล์ที่เลือกได้';form.value.fileData=''};reader.readAsDataURL(file);if(!form.value.title)form.value.title=file.name.replace(/\.[^.]+$/,'')}
-async function submitUpload(){error.value='';message.value='';if(!form.value.fileData){error.value='กรุณาเลือกไฟล์ก่อนส่งตรวจสอบ';return}if(!form.value.courseId){error.value='กรุณาเลือกรายวิชาจากรายการค้นหา';return}submitting.value=true;try{const request=await uploadApi.createUploadRequest(form.value);message.value=`ส่ง “${request.fileName}” ให้ผู้ดูแลตรวจสอบแล้ว`;form.value=emptyForm();selectedCourse.value=null;codeText.value='';nameText.value='';resetFile();emit('uploaded',request)}catch(caught){error.value=caught.message}finally{submitting.value=false}}
+async function submitUpload(forceNew=false){error.value='';message.value='';if(!form.value.fileData){error.value='กรุณาเลือกไฟล์ก่อนส่งตรวจสอบ';return}if(!form.value.courseId){error.value='กรุณาเลือกรายวิชาจากรายการค้นหา';return}submitting.value=true;try{if(!forceNew){const result=await uploadApi.checkDuplicates(form.value);duplicateMatches.value=result.matches||[];exactDuplicate.value=Boolean(result.exactDuplicate);if(duplicateMatches.value.length)return}const request=await uploadApi.createUploadRequest(form.value);message.value=`ส่ง “${request.fileName}” ให้ผู้ดูแลตรวจสอบแล้ว`;duplicateMatches.value=[];exactDuplicate.value=false;form.value=emptyForm();selectedCourse.value=null;codeText.value='';nameText.value='';resetFile();emit('uploaded',request)}catch(caught){error.value=caught.message}finally{submitting.value=false}}
 function suggested(suggestion){suggestionOpen.value=false;form.value.suggestionIds.push(suggestion.id);message.value='ส่งข้อมูลอาจารย์ให้ผู้ดูแลตรวจสอบแล้ว ระบบจะผูกคำแนะนำนี้กับเอกสารเมื่ออัปโหลด'}
 </script>
 
 <template>
-  <form class="form request-form" @submit.prevent="submitUpload">
+  <form class="form request-form" @submit.prevent="submitUpload()">
     <div v-if="message" class="form-success" role="status">{{ message }}</div><div v-if="error" class="form-error" role="alert">{{ error }}</div>
     <section class="upload-dropzone"><input ref="fileInput" type="file" :accept="ACCEPTED_FILES" required @change="onFileChange" /><span class="upload-dropzone__title">ลากไฟล์มาวาง หรือเลือกไฟล์จากเครื่อง</span><span class="upload-dropzone__hint">รองรับ PDF, Office, text, JPG และ PNG ขนาดไม่เกิน 20 MB</span><div v-if="form.fileName" class="upload-file"><span>{{ form.fileName }} - {{ formatFileSize(form.fileSize) }}</span><button class="button button--ghost button--small" type="button" @click.stop="resetFile">นำไฟล์ออก</button></div></section>
     <label>ชื่อเอกสาร *<input v-model="form.title" required maxlength="200" placeholder="เช่น สรุป Algorithm ก่อนสอบ" /></label>
@@ -64,6 +69,19 @@ function suggested(suggestion){suggestionOpen.value=false;form.value.suggestionI
       <fieldset class="teacher-field field-span-2"><legend>อาจารย์ผู้สอน</legend><p v-if="!teacherDependenciesReady" class="material-meta">กรุณาเลือกรายวิชาก่อน</p><p v-else-if="loadingTeachers" class="material-meta">กำลังโหลดข้อมูลผู้สอน...</p><p v-else-if="teacherError" class="form-error">{{ teacherError }}</p><template v-else><label v-for="teacher in teachers" :key="teacher.id" class="checkbox-row"><input v-model="form.instructorIds" type="checkbox" :value="teacher.id" /> {{ teacher.name }}</label><p v-if="!teachers.length" class="material-meta">ยังไม่มีข้อมูลผู้สอนสำหรับรายวิชานี้</p><button class="button button--ghost button--small" type="button" :disabled="!teacherDependenciesReady" @click="suggestionOpen=true">+ เพิ่ม/เสนอชื่ออาจารย์</button></template></fieldset>
       <label class="field-span-2">ประเภทเอกสาร *<select v-model="form.documentType" required><option value="" disabled>เลือกประเภทเอกสาร</option><option v-for="type in metadata.documentTypes" :key="type" :value="type">{{ type==='Lecture'?'เอกสารการสอน':'ชีทสรุป' }}</option></select></label>
     </div>
+    <section v-if="duplicateMatches.length" class="duplicate-suggestions" aria-live="polite">
+      <h3>{{ exactDuplicate ? 'พบไฟล์เดียวกันในระบบ' : 'พบเอกสารที่อาจเป็นรายการเดียวกัน' }}</h3>
+      <p>{{ exactDuplicate ? 'ไม่จำเป็นต้องอัปโหลดไฟล์ซ้ำ กรุณาเปิดเอกสารเดิมหรือเพิ่มเป็นเวอร์ชันใหม่' : 'ตรวจสอบรายการด้านล่างก่อนเลือกสร้างเอกสารใหม่' }}</p>
+      <article v-for="match in duplicateMatches" :key="`${match.source}-${match.id}`" class="duplicate-suggestion">
+        <div><strong>{{ match.title }}</strong><small>{{ match.courseCode }} · {{ match.academicYear }}/{{ match.semester }} · {{ match.contributor || 'ไม่ระบุผู้ส่ง' }}</small></div>
+        <div v-if="match.publicDocumentId" class="button-row">
+          <RouterLink class="button button--ghost button--small" :to="`/dashboard/documents/${match.documentType}/${match.publicDocumentId}`">เปิดเอกสารเดิม</RouterLink>
+          <RouterLink class="button button--secondary button--small" :to="`/dashboard/documents/${match.documentType}/${match.publicDocumentId}?revision=1#submit-revision`">เพิ่มเป็นเวอร์ชันใหม่</RouterLink>
+        </div>
+        <small v-else>มีคำขอที่กำลังรอตรวจสอบอยู่แล้ว</small>
+      </article>
+      <button v-if="!exactDuplicate" class="button button--primary" type="button" :disabled="submitting" @click="submitUpload(true)">ยืนยันอัปโหลดเป็นเอกสารใหม่</button>
+    </section>
     <p class="section-copy">ผู้ดูแลจะตรวจคุณภาพ เอกสารซ้ำ และข้อมูลผู้สอนก่อนเผยแพร่</p><button class="button button--primary" :disabled="submitting||loadingMetadata" type="submit">{{ submitting?'กำลังส่ง…':'ส่งให้ผู้ดูแลตรวจสอบ' }}</button>
   </form>
   <TeacherSuggestionDialog :open="suggestionOpen" :course="selectedCourse" :program="selectedProgram" :academic-year="form.academicYear" :semester="form.semester" @close="suggestionOpen=false" @submitted="suggested" />

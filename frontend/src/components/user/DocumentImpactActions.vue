@@ -17,6 +17,7 @@ defineEmits(['view', 'download', 'helpful'])
       <span>{{ document.helpfulCount || 0 }} มีประโยชน์</span>
     </p>
     <div class="table-actions">
+      <RouterLink v-if="document.documentType && document.id" class="button button--ghost" :to="`/dashboard/documents/${document.documentType.toLowerCase()}/${document.id}`">รายละเอียด · v{{ document.currentVersionNumber || 1 }}</RouterLink>
       <button class="button button--ghost" type="button" :disabled="busy" @click="$emit('view')">{{ UI_TERMS.view }}</button>
       <button class="button button--primary" type="button" :disabled="busy" @click="$emit('download')">{{ UI_TERMS.download }}</button>
       <button class="button" :class="document.helpfulByMe ? 'button--selected' : 'button--ghost'" type="button" :disabled="busy" :aria-pressed="Boolean(document.helpfulByMe)" @click="$emit('helpful')">{{ document.helpfulByMe ? '✓ มีประโยชน์แล้ว' : UI_TERMS.helpful }}</button>

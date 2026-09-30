@@ -9,6 +9,12 @@ export const documentApi = {
   courseYears: (id, type = '') => request({ url: `/courses/${encodeURIComponent(id)}/years?type=${encodeURIComponent(type)}` }),
   courseYear: (id, year, type = '') => request({ url: `/courses/${encodeURIComponent(id)}/years/${encodeURIComponent(year)}?type=${encodeURIComponent(type)}` }),
   search: (query, type = '') => request({ url: `/documents/search?q=${encodeURIComponent(query ?? '')}&type=${encodeURIComponent(type)}` }),
+  detail: (document) => request({ url: `/documents/${document.documentType.toLowerCase()}/${encodeURIComponent(document.id)}` }),
+  versions: (document) => request({ url: `/documents/${document.documentType.toLowerCase()}/${encodeURIComponent(document.id)}/versions` }),
+  submitRevision: (document, data) => request({ url: `/documents/${document.documentType.toLowerCase()}/${encodeURIComponent(document.id)}/revisions`, method: 'POST', data }),
+  myRevisions: () => request({ url: '/documents/my/revisions' }),
+  viewVersion: (version) => apiClient.get(`/documents/${version.documentType.toLowerCase()}/${version.documentId}/versions/${version.id}/view`, { responseType: 'blob' }).then(fileResponse),
+  downloadVersion: (version) => apiClient.get(`/documents/${version.documentType.toLowerCase()}/${version.documentId}/versions/${version.id}/download`, { responseType: 'blob' }).then(fileResponse),
   helpful: (document, helpful) => request({
     url: `/documents/${document.documentType.toLowerCase()}/${document.id}/helpful`,
     method: 'PUT',

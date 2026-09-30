@@ -6,6 +6,7 @@ import * as sheetController from '../controllers/sheet.controller.js'
 const router = Router()
 
 router.use(requireAuth, requireRole('USER'))
+router.post('/duplicate-check', sheetController.previewDuplicateRequests)
 router.post('/', sheetController.createRequest)
 router.get('/', sheetController.getMyUploadRequests)
 router.get('/contributions', sheetController.getMyContributions)

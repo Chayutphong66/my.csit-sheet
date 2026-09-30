@@ -8,7 +8,7 @@ vi.mock('@/services/contributor.service', () => ({ contributorApi: mocks }))
 import UserProfilePanel from '@/components/user/UserProfilePanel.vue'
 const sheet = { id: 'same', title: 'Database notes', documentType: 'Sheet', courseId: 'db', courseCode: '101', courseName: 'Database', createdAt: new Date().toISOString(), starCount: 2, starredByMe: false }
 const lecture = { ...sheet, title: 'Algorithms lecture', documentType: 'Lecture', courseId: 'algo', courseCode: '102', courseName: 'Algorithms' }
-const fixture = () => ({ username: 'owner', displayName: 'Real owner', isOwner: true, badges: [], documents: [sheet, lecture].map(d => ({ ...d })), stars: [], requests: [{ id: 'private', title: 'Private request', fileName: 'notes.txt', documentType: 'Sheet', status: 'PENDING', createdAt: sheet.createdAt }], activity: [{ kind: 'Published', title: sheet.title, date: sheet.createdAt }] })
+const fixture = () => ({ username: 'owner', displayName: 'Real owner', program: 'IT', cohort: '67', isOwner: true, badges: [], documents: [sheet, lecture].map(d => ({ ...d })), stars: [], requests: [{ id: 'private', title: 'Private request', fileName: 'notes.txt', documentType: 'Sheet', status: 'PENDING', createdAt: sheet.createdAt }], activity: [{ kind: 'Published', title: sheet.title, date: sheet.createdAt }] })
 async function setup(tab) {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/dashboard/profile', component: UserProfilePanel }] })
   await router.push({ path: '/dashboard/profile', query: tab ? { tab } : {} }); await router.isReady()
@@ -20,6 +20,8 @@ describe('document-focused Profile', () => {
   it('uses real identity and routed tabs while preserving the sidebar and direct URLs', async () => {
     const { wrapper, router } = await setup()
     expect(wrapper.get('h1').text()).toBe('Real owner')
+    expect(wrapper.text()).toContain('เทคโนโลยีสารสนเทศ (IT)')
+    expect(wrapper.text()).toContain('รุ่น 67')
     expect(wrapper.find('nav').text()).toContain('Upload Requests')
     expect(wrapper.text()).not.toMatch(/Packages|Repositories/)
     expect(wrapper.text()).toContain('1 contributions in the last year')
@@ -37,6 +39,20 @@ describe('document-focused Profile', () => {
     expect(wrapper.find('input[type="file"]').exists()).toBe(false)
     router.back(); await new Promise(resolve => setTimeout(resolve, 0)); await flushPromises()
     expect(wrapper.get('[aria-current="page"]').text()).toContain('Documents')
+    wrapper.unmount()
+  })
+  it('edits community identity with controlled Program and Cohort selects', async () => {
+    mocks.edit.mockResolvedValue({})
+    const { wrapper } = await setup()
+    await wrapper.findAll('button').find(button => button.text() === 'Edit profile').trigger('click')
+    const selects = wrapper.findAll('aside select')
+    expect(selects).toHaveLength(2)
+    expect(selects[0].findAll('option').map(option => option.attributes('value'))).toEqual(['', 'CS', 'IT'])
+    await selects[0].setValue('CS')
+    await selects[1].setValue('66')
+    await wrapper.get('aside form').trigger('submit')
+    await flushPromises()
+    expect(mocks.edit).toHaveBeenCalledWith(expect.objectContaining({ program: 'CS', cohort: '66' }))
     wrapper.unmount()
   })
   it('rolls back a failed optimistic Star and shows the action error', async () => {

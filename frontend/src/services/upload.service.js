@@ -2,6 +2,8 @@ import { apiClient, request } from '@/services/api'
 
 // User-side document submission / upload-request flow.
 export const uploadApi = {
+  checkDuplicates: (data) =>
+    request({ url: '/upload-requests/duplicate-check', method: 'POST', data }),
   createUploadRequest: (data) =>
     request({ url: '/upload-requests', method: 'POST', data }),
   uploadRequests: () => request({ url: '/upload-requests' }),

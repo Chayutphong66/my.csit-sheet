@@ -8,7 +8,8 @@ const report = {
     SELECT
       (SELECT COUNT(*) FROM upload_requests WHERE file_asset_id IS NOT NULL) AS requests,
       (SELECT COUNT(*) FROM lecture_files WHERE file_asset_id IS NOT NULL) AS lectures,
-      (SELECT COUNT(*) FROM sheet_files WHERE file_asset_id IS NOT NULL) AS sheets
+      (SELECT COUNT(*) FROM sheet_files WHERE file_asset_id IS NOT NULL) AS sheets,
+      (SELECT COUNT(*) FROM document_versions WHERE file_asset_id IS NOT NULL) AS versions
   `).get(),
   legacyPayloads: db.prepare(`
     SELECT

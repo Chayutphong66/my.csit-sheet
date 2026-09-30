@@ -2,6 +2,8 @@ import { findContributorByUsername, searchContributors } from '../repositories/c
 import { profileDocuments, starredDocuments, profileActivity, setStar } from '../repositories/profile.repository.js'
 import { findUploadRequestsByUserId } from '../repositories/uploadRequest.repository.js'
 import { db } from '../data/database.js'
+import { listMyRevisions } from '../repositories/documentVersion.repository.js'
+import { normalizeCohort, normalizeProgram } from '../services/communityIdentity.service.js'
 
 function safeDocument(document) {
   const { uploaderId, ...safe } = document
@@ -30,6 +32,7 @@ export function profile(req, res) {
     documents,
     stars: starredDocuments(id, req.user.id).map(safeDocument),
     requests: isOwner ? findUploadRequestsByUserId(id).map(({ id, title, fileName, documentType, courseName, createdAt, status, rejectionReason }) => ({ id, title, fileName, documentType, courseName, createdAt, status, rejectionReason })) : [],
+    revisions: isOwner ? listMyRevisions(id) : [],
     activity: profileActivity(id, req.user.id, documents)
   })
 }
@@ -42,8 +45,14 @@ export function star(req, res) {
 }
 
 export function edit(req, res) {
-  const name = typeof req.body.displayName === 'string' ? req.body.displayName.trim() : ''
-  if (!name || name.length > 100) return res.status(400).json({ message: 'Display name must contain 1-100 characters' })
-  db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(name, req.user.id)
-  res.json({ displayName: name })
+  try {
+    const name = typeof req.body.displayName === 'string' ? req.body.displayName.trim() : ''
+    if (!name || name.length > 100) return res.status(400).json({ message: 'Display name must contain 1-100 characters' })
+    const program = normalizeProgram(req.body.program, { required: false })
+    const cohort = normalizeCohort(req.body.cohort, { required: false })
+    db.prepare('UPDATE users SET display_name = ?,program_code=?,cohort=? WHERE id = ?').run(name, program, cohort, req.user.id)
+    res.json({ displayName: name, program, cohort })
+  } catch (error) {
+    res.status(error.status || 400).json({ message: error.message })
+  }
 }

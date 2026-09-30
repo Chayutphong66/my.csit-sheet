@@ -22,6 +22,10 @@ import { decodeUploadedFile, validateUploadPayload } from '../services/uploadVal
 import { createTeacher, listTeachers, updateTeacher, teacherOfferings, listOfferings, saveOffering, listTeacherSuggestions, reviewTeacherSuggestion, getCurriculumCourse } from '../repositories/academic.repository.js'
 import { academicYear, semester, section, teacherName, email, validationError } from '../services/academicValidation.service.js'
 import { courseImportToken, importCourseWorkbook, listCourseImports, previewCourseWorkbook } from '../data/importCourseOfferings.js'
+import {
+  approveRevision, findDocumentVersion, findVersionFile, listRevisionsForAdmin,
+  rejectRevision, restoreDocumentVersion
+} from '../repositories/documentVersion.repository.js'
 
 const COURSE_IMPORT_MAX_BYTES = 20 * 1024 * 1024
 
@@ -40,16 +44,24 @@ export function getPendingSheets(_req, res) {
   res.json(findPendingSheets())
 }
 
-export function getUploadRequests(_req, res) {
-  res.json(findAllUploadRequests().map((request) => {
-    const duplicateMatches = findDuplicateMatches(request)
-    const duplicateStatus = duplicateMatches.some((match) => match.matchType === 'EXACT_DUPLICATE')
-      ? 'EXACT_DUPLICATE'
-      : duplicateMatches.some((match) => match.matchType === 'CONTENT_DUPLICATE')
-        ? 'CONTENT_DUPLICATE'
-        : duplicateMatches.length ? 'POSSIBLE_DUPLICATE' : request.duplicateStatus
-    return { ...request, duplicateStatus, duplicateMatches }
-  }))
+export function getUploadRequests(req, res, next) {
+  try {
+    const status = String(req.query.status ?? '').trim().toUpperCase()
+    if (status && !['PENDING', 'APPROVED', 'REJECTED'].includes(status)) {
+      throw validationError('Invalid review status')
+    }
+    res.json(findAllUploadRequests(status).map((request) => {
+      const duplicateMatches = request.status === 'COMPLETED' ? [] : findDuplicateMatches(request)
+      const duplicateStatus = duplicateMatches.some((match) => match.matchType === 'EXACT_DUPLICATE')
+        ? 'EXACT_DUPLICATE'
+        : duplicateMatches.some((match) => match.matchType === 'CONTENT_DUPLICATE')
+          ? 'CONTENT_DUPLICATE'
+          : duplicateMatches.length ? 'POSSIBLE_DUPLICATE' : request.duplicateStatus
+      return { ...request, duplicateStatus, duplicateMatches }
+    }))
+  } catch (error) {
+    next(error)
+  }
 }
 
 export function getUploadRequestFile(req, res, next) {
@@ -283,6 +295,51 @@ export async function confirmCourseImport(req, res, next) {
 
 export function getCourseImportHistory(_req, res) {
   res.json({ imports: listCourseImports() })
+}
+
+export function getRevisions(req, res, next) {
+  try { res.json({ revisions: listRevisionsForAdmin(req.query.status) }) } catch (error) { next(error) }
+}
+
+export function getRevision(req, res, next) {
+  try {
+    const revision = findDocumentVersion(req.params.id)
+    if (!revision) throw validationError('Revision not found', 404)
+    const detail = listRevisionsForAdmin('').find(item => item.id === revision.id)
+    res.json(detail || revision)
+  } catch (error) { next(error) }
+}
+
+export function getRevisionFile(req, res, next) {
+  try {
+    const file = findVersionFile(req.params.id, { approvedOnly: false })
+    if (!file?.fileData) throw validationError('Revision file unavailable', 404)
+    res.setHeader('Content-Type', file.mimeType || 'application/octet-stream')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.originalFilename || 'revision')}`)
+    res.send(Buffer.from(file.fileData))
+  } catch (error) { next(error) }
+}
+
+export function approveDocumentRevision(req, res, next) {
+  try {
+    const revision = approveRevision(req.params.id, req.user.id)
+    createNotification({ userId: revision.submittedBy, title: 'Revision Approved', message: `Your revision was published as v${revision.versionNumber}.` })
+    res.json(revision)
+  } catch (error) { next(error) }
+}
+
+export function rejectDocumentRevision(req, res, next) {
+  try {
+    const revision = rejectRevision(req.params.id, req.user.id, req.body.reason)
+    createNotification({ userId: revision.submittedBy, title: 'Revision Rejected', message: `Your revision was rejected: ${revision.reviewNote}` })
+    res.json(revision)
+  } catch (error) { next(error) }
+}
+
+export function restoreVersion(req, res, next) {
+  try { res.status(201).json(restoreDocumentVersion(req.params.type, req.params.documentId, req.params.versionId, req.user.id)) }
+  catch (error) { next(error) }
 }
 
 export function getTeachers(req, res) {

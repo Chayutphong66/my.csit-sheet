@@ -3,11 +3,13 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AuthPanel from '@/components/auth/AuthPanel.vue'
 import { useAuthStore } from '@/stores/authStore'
+import { PROGRAM_OPTIONS, cohortOptions } from '@/services/communityIdentity'
 
 const auth = useAuthStore()
 const router = useRouter()
 const message = ref('')
-const form = reactive({ displayName: '', username: '', email: '', password: '' })
+const form = reactive({ displayName: '', username: '', email: '', password: '', program: '', cohort: '' })
+const cohorts = cohortOptions()
 
 async function submit() {
   const data = await auth.register(form)
@@ -34,6 +36,20 @@ async function submit() {
       <label>
         รหัสผ่าน
         <input v-model="form.password" type="password" required minlength="8" autocomplete="new-password" placeholder="อย่างน้อย 8 ตัวอักษร" />
+      </label>
+      <label>
+        สาขา
+        <select v-model="form.program" required>
+          <option value="" disabled>เลือกสาขา</option>
+          <option v-for="program in PROGRAM_OPTIONS" :key="program.value" :value="program.value">{{ program.label }}</option>
+        </select>
+      </label>
+      <label>
+        รุ่น
+        <select v-model="form.cohort" required>
+          <option value="" disabled>เลือกรุ่น</option>
+          <option v-for="cohort in cohorts" :key="cohort" :value="cohort">รุ่น {{ cohort }}</option>
+        </select>
       </label>
       <p v-if="message" class="form-success">{{ message }}</p>
       <button class="button button--primary button--wide" :disabled="auth.loading">

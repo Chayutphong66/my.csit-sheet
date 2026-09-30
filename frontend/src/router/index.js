@@ -18,6 +18,7 @@ import DocumentSearchPanel from '@/components/user/DocumentSearchPanel.vue'
 import DocumentCatalogPanel from '@/components/user/DocumentCatalogPanel.vue'
 import UserUploadPanel from '@/components/user/UserUploadPanel.vue'
 import PublicProfilePanel from '@/components/user/PublicProfilePanel.vue'
+import DocumentDetailPanel from '@/components/user/DocumentDetailPanel.vue'
 
 const routes = [
   { path: '/', name: 'home', component: LandingView },
@@ -31,6 +32,7 @@ const routes = [
       { path: '', name: 'dashboard', redirect: { name: 'user-home' } },
       { path: 'home', name: 'user-home', component: UserHomePanel },
       { path: 'search', name: 'document-search', component: DocumentSearchPanel },
+      { path: 'documents/:type/:id', name: 'document-detail', component: DocumentDetailPanel },
       { path: 'courses/:courseId', name: 'course-detail', component: CourseDetailPanel },
       { path: 'courses/:courseId/years/:year', name: 'course-year', component: CourseYearPanel },
       { path: 'sheet', name: 'user-sheet', component: DocumentCatalogPanel, props: { documentType: 'Sheet', basePath: '/dashboard/sheet' } },

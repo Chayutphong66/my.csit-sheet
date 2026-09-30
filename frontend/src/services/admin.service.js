@@ -2,7 +2,7 @@ import { apiClient, request } from '@/services/api'
 
 // Admin operations: user management, document management, approval / rejection.
 export const adminApi = {
-  adminUploadRequests: () => request({ url: '/admin/upload-requests' }),
+  adminUploadRequests: (status = '') => request({ url: `/admin/upload-requests${status ? `?status=${encodeURIComponent(status)}` : ''}` }),
   adminDownloadUploadRequestFile: (id) =>
     apiClient
       .get(`/admin/upload-requests/${id}/file`, { responseType: 'blob' })
@@ -29,6 +29,11 @@ export const adminApi = {
   previewCourseImport: (data) => request({ url: '/admin/course-imports/preview', method: 'POST', data }),
   confirmCourseImport: (data) => request({ url: '/admin/course-imports/confirm', method: 'POST', data }),
   courseImportHistory: () => request({ url: '/admin/course-imports' }),
+  revisions: (status = '') => request({ url: `/admin/revisions?status=${encodeURIComponent(status)}` }),
+  revisionFile: (id) => apiClient.get(`/admin/revisions/${encodeURIComponent(id)}/file`, { responseType: 'blob' }).then(response => response.data),
+  approveRevision: (id) => request({ url: `/admin/revisions/${encodeURIComponent(id)}/approve`, method: 'PATCH' }),
+  rejectRevision: (id, reason) => request({ url: `/admin/revisions/${encodeURIComponent(id)}/reject`, method: 'PATCH', data: { reason } }),
+  restoreVersion: (document, versionId) => request({ url: `/admin/documents/${document.documentType.toLowerCase()}/${encodeURIComponent(document.id)}/restore/${encodeURIComponent(versionId)}`, method: 'POST' }),
   approve: (id) => request({ url: `/admin/sheets/${id}/approve`, method: 'PATCH' }),
   reject: (id, reason) =>
     request({

@@ -4,6 +4,7 @@ import {
 } from '../repositories/lecture.repository.js'
 import { findLectureFileByLectureId } from '../repositories/lectureFile.repository.js'
 import { recordDocumentInteraction } from '../repositories/communityInteraction.repository.js'
+import { findCurrentDocumentVersion, findVersionFile } from '../repositories/documentVersion.repository.js'
 
 // Strip internal linkage fields before returning a lecture to the client, and expose a
 // simple `hasFile` flag so the UI knows whether to show a download button. Seeded demo
@@ -42,7 +43,8 @@ export function getLectureFile(req, res, next) {
       throw error
     }
 
-    const file = findLectureFileByLectureId(lecture.id)
+    const currentVersion = findCurrentDocumentVersion('Lecture', lecture.id)
+    const file = currentVersion ? findVersionFile(currentVersion.id) : findLectureFileByLectureId(lecture.id)
     if (!file || !file.fileData) {
       const error = new Error('No file is stored for this lecture')
       error.status = 404

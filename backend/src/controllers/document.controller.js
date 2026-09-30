@@ -13,6 +13,14 @@ import {
   recordDocumentInteraction,
   setDocumentHelpful
 } from '../repositories/communityInteraction.repository.js'
+import crypto from 'node:crypto'
+import { calculateContentFingerprint } from '../services/contentFingerprint.service.js'
+import { decodeUploadedFile, validateFileMetadata } from '../services/uploadValidation.service.js'
+import {
+  findCurrentDocumentVersion, findDocumentVersion, findVersionFile,
+  listApprovedVersions, listMyRevisions, submitRevision, REVISION_TYPES
+} from '../repositories/documentVersion.repository.js'
+import { withStars } from '../repositories/profile.repository.js'
 
 function notFound(message = 'Document not found') {
   const error = new Error(message)
@@ -81,16 +89,66 @@ export function getDocument(req, res, next) {
     documentType: document.documentType,
     documentId: document.id
   })
-  res.json({ ...publicDocument(document), ...helpful })
+  const starred = withStars([document], req.user.id)[0]
+  res.json({ ...publicDocument(starred), ...helpful, currentVersion: findCurrentDocumentVersion(document.documentType, document.id) })
 }
+
+export function getVersions(req, res, next) {
+  try {
+    const versions = listApprovedVersions(req.params.type, req.params.id)
+    if (!versions) throw notFound()
+    res.json({ versions })
+  } catch (error) { next(error) }
+}
+
+export function createRevision(req, res, next) {
+  try {
+    const { fileName, fileType } = validateFileMetadata(req.body)
+    const fileData = decodeUploadedFile(req.body.fileData, fileType)
+    const revisionType = String(req.body.revisionType || '').trim().toUpperCase()
+    if (!REVISION_TYPES.includes(revisionType)) {
+      const error = new Error('Revision type is invalid'); error.status = 400; throw error
+    }
+    const sha256 = crypto.createHash('sha256').update(fileData).digest('hex')
+    const revision = submitRevision({
+      documentType: req.params.type, documentId: req.params.id, submittedBy: req.user.id,
+      revisionType, changeSummary: req.body.changeSummary, originalFileName: fileName,
+      mimeType: fileType, fileData, sha256, contentHash: calculateContentFingerprint(fileData, fileType)
+    })
+    res.status(201).json(revision)
+  } catch (error) { next(error) }
+}
+
+export function getMyRevisions(req, res) {
+  res.json({ revisions: listMyRevisions(req.user.id) })
+}
+
+function sendVersionFile(req, res, next, disposition) {
+  try {
+    const version = findDocumentVersion(req.params.versionId)
+    if (!version || version.documentId !== req.params.id || version.documentType.toLowerCase() !== String(req.params.type).toLowerCase() || version.status !== 'APPROVED') throw notFound('Version not found')
+    const file = findVersionFile(version.id)
+    if (!file?.fileData) throw notFound('Version file unavailable')
+    res.setHeader('Content-Type', file.mimeType || 'application/octet-stream')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${encodeURIComponent(file.originalFilename || 'document')}`)
+    res.send(Buffer.from(file.fileData))
+  } catch (error) { next(error) }
+}
+
+export function viewVersion(req, res, next) { sendVersionFile(req, res, next, 'inline') }
+export function downloadVersion(req, res, next) { sendVersionFile(req, res, next, 'attachment') }
 
 function sendFile(req, res, next, disposition) {
   try {
     const document = findPublicDocument(req.params.type, req.params.id)
     if (!document) throw notFound()
-    const file = document.documentType === 'Lecture'
-      ? findLectureFileByLectureId(document.id)
-      : findSheetFileBySheetId(document.id)
+    const currentVersion = findCurrentDocumentVersion(document.documentType, document.id)
+    const file = currentVersion
+      ? findVersionFile(currentVersion.id)
+      : document.documentType === 'Lecture'
+        ? findLectureFileByLectureId(document.id)
+        : findSheetFileBySheetId(document.id)
     if (!file?.fileData) throw notFound()
     recordDocumentInteraction({
       userId: req.user.id,

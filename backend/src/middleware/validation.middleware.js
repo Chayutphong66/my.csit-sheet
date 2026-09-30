@@ -1,3 +1,5 @@
+import { normalizeCohort, normalizeProgram } from '../services/communityIdentity.service.js'
+
 function validationError(message) {
   const error = new Error(message)
   error.status = 400
@@ -33,6 +35,8 @@ export function validateRegister(req, _res, next) {
       : requireString(req.body.displayName, 'displayName', { min: 2, max: 80 })
     const email = requireString(req.body?.email, 'email', { max: 255 }).toLowerCase()
     const password = requireString(req.body?.password, 'password', { min: 8, max: 1024 })
+    const program = normalizeProgram(req.body?.program)
+    const cohort = normalizeCohort(req.body?.cohort)
 
     if (!/^[a-zA-Z0-9_.-]+$/.test(username)) {
       throw validationError('username contains invalid characters')
@@ -41,7 +45,7 @@ export function validateRegister(req, _res, next) {
       throw validationError('email is invalid')
     }
 
-    req.body = { username, displayName, email, password }
+    req.body = { username, displayName, email, password, program, cohort }
     next()
   } catch (error) {
     next(error)
@@ -67,6 +71,18 @@ export function validateIdParam(req, _res, next) {
     return
   }
   next()
+}
+
+export function validateIdParams(...names) {
+  return (req, _res, next) => {
+    for (const name of names) {
+      if (!/^[A-Za-z0-9_-]{1,100}$/.test(String(req.params[name] ?? ''))) {
+        next(validationError(`Invalid ${name}`))
+        return
+      }
+    }
+    next()
+  }
 }
 
 export function validateUsernameParam(req, _res, next) {

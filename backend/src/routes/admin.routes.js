@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js'
-import { validateIdParam } from '../middleware/validation.middleware.js'
+import { validateIdParam, validateIdParams } from '../middleware/validation.middleware.js'
 import * as adminController from '../controllers/admin.controller.js'
 
 const router = Router()
@@ -20,6 +20,12 @@ router.get('/stats', adminController.getStats)
 router.post('/course-imports/preview', adminController.previewCourseImport)
 router.post('/course-imports/confirm', adminController.confirmCourseImport)
 router.get('/course-imports', adminController.getCourseImportHistory)
+router.get('/revisions', adminController.getRevisions)
+router.get('/revisions/:id', validateIdParam, adminController.getRevision)
+router.get('/revisions/:id/file', validateIdParam, adminController.getRevisionFile)
+router.patch('/revisions/:id/approve', validateIdParam, adminController.approveDocumentRevision)
+router.patch('/revisions/:id/reject', validateIdParam, adminController.rejectDocumentRevision)
+router.post('/documents/:type/:documentId/restore/:versionId', validateIdParams('documentId', 'versionId'), adminController.restoreVersion)
 router.get('/teachers', adminController.getTeachers)
 router.post('/teachers', adminController.addTeacher)
 router.patch('/teachers/:id', validateIdParam, adminController.editTeacher)

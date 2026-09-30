@@ -6,6 +6,7 @@ import {
 } from '../repositories/sheet.repository.js'
 import {
   createUploadRequest,
+  findDuplicateMatches,
   findUploadRequestById,
   findUploadRequestFileById,
   findUploadRequestsByUserId,
@@ -21,7 +22,10 @@ import {
   markNotificationRead
 } from '../repositories/notification.repository.js'
 import { decodeUploadedFile, validateUploadPayload } from '../services/uploadValidation.service.js'
+import crypto from 'node:crypto'
+import { calculateContentFingerprint } from '../services/contentFingerprint.service.js'
 import { recordDocumentInteraction } from '../repositories/communityInteraction.repository.js'
+import { findCurrentDocumentVersion, findVersionFile } from '../repositories/documentVersion.repository.js'
 
 function publicSheet(sheet) {
   const { uploaderId, uploaderEmail, rejectReason, sourceRequestId, ...safeSheet } = sheet
@@ -56,7 +60,8 @@ export function getSheetFile(req, res, next) {
       throw error
     }
 
-    const file = findSheetFileBySheetId(sheet.id)
+    const currentVersion = findCurrentDocumentVersion('Sheet', sheet.id)
+    const file = currentVersion ? findVersionFile(currentVersion.id) : findSheetFileBySheetId(sheet.id)
     if (!file || !file.fileData) {
       const error = new Error('No file is stored for this sheet')
       error.status = 404
@@ -132,6 +137,37 @@ export function createRequest(req, res, next) {
     })
 
     res.status(201).json(request)
+  } catch (error) {
+    next(error)
+  }
+}
+
+export function previewDuplicateRequests(req, res, next) {
+  try {
+    const validated = validateUploadPayload(req.body)
+    const fileData = decodeUploadedFile(req.body.fileData, validated.fileType)
+    const fileHash = crypto.createHash('sha256').update(fileData).digest('hex')
+    const contentHash = calculateContentFingerprint(fileData, validated.fileType)
+    const matches = findDuplicateMatches({
+      id: '', title: validated.title, fileHash, contentHash,
+      courseId: validated.courseId, academicYear: validated.academicYear,
+      semester: validated.semester, documentType: validated.documentType
+    })
+    const safeMatches = matches.map((match, index) => match.publicDocumentId ? match : {
+      source: 'REQUEST',
+      id: `pending-${index + 1}`,
+      title: 'A matching document request is already pending review',
+      documentType: match.documentType,
+      status: 'PENDING',
+      matchType: match.matchType,
+      binaryMatch: match.binaryMatch,
+      contentMatch: match.contentMatch,
+      publicDocumentId: null
+    })
+    res.json({
+      exactDuplicate: safeMatches.some((match) => match.matchType === 'EXACT_DUPLICATE'),
+      matches: safeMatches
+    })
   } catch (error) {
     next(error)
   }

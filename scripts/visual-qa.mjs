@@ -20,6 +20,7 @@ const certificate = spawnSync(openssl, ['req', '-x509', '-newkey', 'rsa:2048', '
 assert.equal(certificate.status, 0, certificate.stderr)
 const output = path.resolve('artifacts/visual-qa')
 mkdirSync(output, { recursive: true })
+const expectedCohorts = ['', ...Array.from({ length: new Date().getFullYear() + 543 - 2566 + 1 }, (_, index) => String((2566 + index) % 100).padStart(2, '0'))]
 process.env.NODE_ENV = 'production'
 process.env.SKIP_DB_SEED = '1'
 process.env.JWT_SECRET = 'isolated-visual-qa-secret-never-used-for-production'
@@ -35,6 +36,7 @@ const insert = db.prepare('INSERT INTO users (id, username, display_name, email,
 for (const [username, role] of [['user1', 'USER'], ['user2', 'USER'], ['admin1', 'ADMIN']]) {
   insert.run(username, username, username === 'user1' ? longName : username, `${username}@example.test`, hashPassword('Test@1234'), role)
 }
+db.prepare("UPDATE users SET program_code='CS', cohort='66' WHERE id='user1'").run()
 db.prepare('INSERT INTO courses (id, name, code, description) VALUES (?, ?, ?, ?)').run('qa-course', 'Software Engineering และการพัฒนาระบบที่ใช้งานได้จริง '.repeat(3), 'CS270', 'Isolated QA fixture')
 db.prepare("INSERT INTO program_courses(program_id,course_id) VALUES('program-cs','qa-course')").run()
 db.prepare('INSERT INTO instructors (id, name) VALUES (?, ?)').run('qa-instructor', 'QA Teacher')
@@ -54,6 +56,7 @@ let browserProcess
 let socket
 let cdp
 let freshNavigation = true
+let visualDocumentId = ''
 const report = { migration: 'PASS (twice)', screenshots: [], checks: [], errors: [] }
 const browserDiagnostics = []
 
@@ -109,8 +112,8 @@ async function capture(name, width) {
   const file = `${name}-${width}.png`
   writeFileSync(path.join(output, file), Buffer.from(shot.data, 'base64'))
   report.screenshots.push(file)
-  if (name === 'starter' || name === 'review' || name === 'documents') {
-    const selector = name === 'starter' ? '.share-section' : name === 'review' ? '.duplicate-comparison' : '.semester-section'
+  if (name === 'starter' || name === 'review' || name === 'documents' || name === 'version-detail') {
+    const selector = name === 'starter' ? '.share-section' : name === 'review' ? '.duplicate-comparison' : name === 'version-detail' ? '.version-history' : '.semester-section'
     await evaluate(`document.querySelector(${JSON.stringify(selector)})?.scrollIntoView({block:'start', behavior:'instant'})`)
     await delay(name === 'starter' ? 700 : 300)
     const detail = await cdp('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
@@ -206,9 +209,21 @@ try {
     assert.ok(id, JSON.stringify(result.data))
     await api(`/admin/upload-requests/${id}/approve`, admin, {}, 'PATCH')
   }
+  visualDocumentId = db.prepare("SELECT id FROM lectures WHERE status='APPROVED' ORDER BY created_at DESC LIMIT 1").get().id
+  const revision = await api(`/documents/lecture/${visualDocumentId}/revisions`, user, {
+    revisionType: 'UPDATE_DOCUMENT',
+    changeSummary: 'Visual QA pending revision with additional examples',
+    fileName: 'visual-version-2.txt',
+    fileType: 'text/plain',
+    fileData: Buffer.from('Visual QA version two content with additional examples').toString('base64')
+  }, 'POST')
+  assert.equal(revision.data.status, 'PENDING')
+  report.versioning = { pendingRevision: true, canonicalDocumentId: visualDocumentId }
   const pending = payload('Sheet', 'Pending document for isolated review')
   await api('/upload-requests', user, pending, 'POST')
   await api('/upload-requests', user, { ...pending, fileName: 'renamed-duplicate.txt' }, 'POST')
+  const rejectedReview = await api('/upload-requests', user, payload('Sheet', 'Rejected document for review history'), 'POST')
+  await api(`/admin/upload-requests/${rejectedReview.data.id}/reject`, admin, { reason: 'Visual QA rejection reason' }, 'PATCH')
   report.storage = { integrity: db.prepare('PRAGMA integrity_check').get().integrity_check, foreignKeys: db.prepare('PRAGMA foreign_key_check').all().length }
   assert.equal(report.storage.integrity, 'ok'); assert.equal(report.storage.foreignKeys, 0)
 
@@ -243,18 +258,35 @@ try {
     await cdp('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false })
     await cdp('Network.clearBrowserCookies')
     freshNavigation = true
-    for (const [name, route] of [['starter', '/'], ['login', '/login'], ['register', '/register']]) { await navigate(route); await capture(name, width) }
+    for (const [name, route] of [['starter', '/'], ['login', '/login'], ['register', '/register']]) {
+      await navigate(route)
+      if (name === 'register') {
+        const registerIdentity = await evaluate(`(() => { const selects=[...document.querySelectorAll('form select')]; return { required: selects.map(item => item.required), programs: [...selects[0].options].map(item => item.value), cohorts: [...selects[1].options].map(item => item.value) } })()`)
+        assert.deepEqual(registerIdentity.required, [true, true])
+        assert.deepEqual(registerIdentity.programs, ['', 'CS', 'IT'])
+        assert.deepEqual(registerIdentity.cohorts, expectedCohorts)
+        report.checks.push({ name: 'register-community-identity', width, ...registerIdentity })
+      }
+      await capture(name, width)
+    }
     await navigate('/')
     await evaluate(`document.querySelector('.motion-toggle').click()`)
-    assert.equal(await evaluate(`getComputedStyle(document.querySelector('.topic-track')).animationPlayState`), 'paused')
+    await waitFor(`document.querySelector('.starter-page').classList.contains('motion-paused')`)
+    assert.equal(await evaluate(`document.querySelector('.starter-page').classList.contains('motion-paused')`), true)
     await evaluate(`document.querySelector('.motion-toggle').click()`)
     report.checks.push({ name: 'pause-control', width, overflow: [] })
     await actor('user2')
-    for (const [name, route] of [['home', '/dashboard/home'], ['lectures', '/dashboard/lec'], ['sheets', '/dashboard/sheet'], ['course', '/dashboard/courses/qa-course'], ['documents', '/dashboard/courses/qa-course/years/2569'], ['search', '/dashboard/search'], ['upload', '/dashboard/upload'], ['profile', '/dashboard/profile'], ['contributor', '/dashboard/users/user1']]) {
+    for (const [name, route] of [['home', '/dashboard/home'], ['lectures', '/dashboard/lec'], ['sheets', '/dashboard/sheet'], ['course', '/dashboard/courses/qa-course'], ['documents', '/dashboard/courses/qa-course/years/2569'], ['version-detail', `/dashboard/documents/lecture/${visualDocumentId}`], ['search', '/dashboard/search'], ['upload', '/dashboard/upload'], ['profile', '/dashboard/profile'], ['contributor', '/dashboard/users/user1']]) {
       await navigate(route)
       if (name === 'search') {
         await evaluate(`(() => { const input = document.querySelector('input[type=search]'); input.value = '@user1'; input.dispatchEvent(new Event('input', {bubbles:true})); input.form.requestSubmit(); })()`)
         await waitFor(`!!document.querySelector('.contributor-card') && !document.querySelector('.loading-state')`)
+      }
+      if (name === 'profile') {
+        assert.equal(await evaluate(`document.querySelector('.community-identity')?.textContent.includes('ยังไม่ได้ระบุสาขา') && document.querySelector('.community-identity')?.textContent.includes('ยังไม่ได้ระบุรุ่น')`), true)
+      }
+      if (name === 'contributor') {
+        assert.equal(await evaluate(`document.querySelector('.community-identity')?.textContent.includes('CS') && document.querySelector('.community-identity')?.textContent.includes('รุ่น 66')`), true)
       }
       await capture(name, width)
     }
@@ -265,8 +297,10 @@ try {
     await waitFor(`!!document.querySelector('.document-profile__metadata button[aria-pressed=true]') && !document.querySelector('.document-profile button:disabled')`)
     await navigate('/dashboard/profile?tab=stars')
     await waitFor(`!!document.querySelector('.document-profile__row')`)
-    await cdp('Page.reload')
-    await waitFor(`!!document.querySelector('.document-profile__row') && !document.querySelector('.loading-state')`)
+    if (width === 1440) {
+      await cdp('Page.reload')
+      await waitFor(`!!document.querySelector('.document-profile__row') && !document.querySelector('.loading-state')`)
+    }
     await capture('profile-stars', width)
     await evaluate(`document.querySelector('.document-profile__metadata button').click()`)
     await waitFor(`!document.querySelector('.document-profile__row') && !document.querySelector('.loading-state')`)
@@ -274,7 +308,13 @@ try {
     await capture('profile-stars-empty', width)
     await actor('user1'); await navigate('/dashboard/profile?tab=requests')
     await waitFor(`!!document.querySelector('.document-profile__request')`)
+    assert.equal(await evaluate(`document.querySelector('.community-identity')?.textContent.includes('CS') && document.querySelector('.community-identity')?.textContent.includes('รุ่น 66')`), true)
     await capture('profile-requests', width)
+    await evaluate(`([...document.querySelectorAll('aside button')].find(e => e.textContent.trim() === 'Edit profile')).click()`)
+    await waitFor(`document.querySelectorAll('aside form select').length === 2`)
+    assert.equal(await evaluate(`document.querySelectorAll('aside form input').length === 1 && document.querySelectorAll('aside form select').length === 2`), true)
+    await capture('profile-edit-community', width)
+    await evaluate(`([...document.querySelectorAll('aside form button')].find(e => e.textContent.trim() === 'Cancel')).click()`)
     await navigate('/dashboard/users/user2?tab=requests')
     await waitFor(`!!document.querySelector('.document-profile__content .empty-state')`)
     assert.equal(await evaluate(`document.querySelectorAll('.document-profile__request').length`), 0)
@@ -295,6 +335,24 @@ try {
       }
       if (name === 'review') {
         await waitFor(`document.querySelector('iframe')?.contentDocument?.body?.textContent.includes('Pending document')`)
+        assert.equal(await evaluate(`document.querySelector('.approval-workspace .user-identity__community')?.textContent.includes('CS') && document.querySelector('.approval-workspace .user-identity__community')?.textContent.includes('รุ่น 66')`), true)
+        assert.equal(await evaluate(`[...document.querySelectorAll('[data-review-status]')].every(e => e.dataset.reviewStatus === 'PENDING')`), true)
+        await evaluate(`([...document.querySelectorAll('[role=tab]')].find(e => e.textContent.includes('APPROVED'))).click()`)
+        await waitFor(`location.search.includes('status=APPROVED') && document.querySelectorAll('[data-review-status]').length > 0 && [...document.querySelectorAll('[data-review-status]')].every(e => e.dataset.reviewStatus === 'APPROVED')`)
+        await capture('review-approved', width)
+        if (width === 1440) {
+          await cdp('Page.reload')
+          await waitFor(`location.search.includes('status=APPROVED') && document.querySelectorAll('[data-review-status]').length > 0 && [...document.querySelectorAll('[data-review-status]')].every(e => e.dataset.reviewStatus === 'APPROVED')`)
+        }
+        await evaluate(`([...document.querySelectorAll('[role=tab]')].find(e => e.textContent.includes('REJECTED'))).click()`)
+        await waitFor(`document.querySelectorAll('[data-review-status]').length > 0 && [...document.querySelectorAll('[data-review-status]')].every(e => e.dataset.reviewStatus === 'REJECTED')`)
+        await capture('review-rejected', width)
+        await evaluate(`document.querySelectorAll('[role=tab]')[3].click()`)
+        await waitFor(`!location.search.includes('status=') && new Set([...document.querySelectorAll('[data-review-status]')].map(e => e.dataset.reviewStatus)).size === 3`)
+        const browserCounts = await evaluate(`[...document.querySelectorAll('.queue-summary strong')].map(e => Number(e.textContent))`)
+        assert.equal(browserCounts[3], browserCounts[0] + browserCounts[1] + browserCounts[2])
+        await evaluate(`document.querySelectorAll('[role=tab]')[0].click()`)
+        await waitFor(`location.search.includes('status=PENDING') && [...document.querySelectorAll('[data-review-status]')].every(e => e.dataset.reviewStatus === 'PENDING')`)
         await evaluate(`document.querySelector('.preview-panel').scrollIntoView({block:'start', behavior:'instant'})`)
         await capture('file-preview', width)
       }
