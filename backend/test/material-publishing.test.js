@@ -702,7 +702,7 @@ test('invalid file metadata and spoofed file contents are rejected safely', asyn
 test('health check is minimal and does not require authentication', async () => {
   const result = await api('/health')
   assert.equal(result.response.status, 200)
-  assert.deepEqual(result.data, { status: 'ok' })
+  assert.deepEqual(result.data, { status: 'ok', database: 'ready' })
   const csp = result.response.headers.get('content-security-policy')
   assert.ok(csp.includes("frame-src 'self' blob:"))
   assert.ok(csp.includes("script-src 'self'"))

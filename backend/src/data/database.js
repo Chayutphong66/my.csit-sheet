@@ -13,7 +13,17 @@ const dataDir = path.resolve(__dirname, '../../data')
 
 mkdirSync(dataDir, { recursive: true })
 
-export const db = new DatabaseSync(process.env.DATABASE_PATH || path.join(dataDir, 'csit-sheet.sqlite'))
+const configuredDatabasePath = process.env.DATABASE_PATH?.trim()
+if (process.env.NODE_ENV === 'production' && !configuredDatabasePath) {
+  throw new Error('DATABASE_PATH must point to persistent storage in production')
+}
+if (process.env.NODE_ENV === 'production' && !path.isAbsolute(configuredDatabasePath)) {
+  throw new Error('DATABASE_PATH must be an absolute path in production')
+}
+const databasePath = configuredDatabasePath || path.join(dataDir, 'csit-sheet.sqlite')
+mkdirSync(path.dirname(databasePath), { recursive: true })
+
+export const db = new DatabaseSync(databasePath)
 
 // Stars are saved interests, distinct from Helpful votes and contribution rewards.
 db.exec(`

@@ -10,6 +10,7 @@
     "dev": "node src/server.js",
     "dev:watch": "node --watch src/server.js",
     "db:migrate": "node src/data/migrate.js",
+    "db:bootstrap-production": "node src/data/bootstrapProduction.js",
     "db:seed": "node src/data/seed.js",
     "db:import-courses": "node src/data/importCoursesCli.js",
     "db:cleanup-files": "node src/data/cleanupFileAssets.js",

@@ -48,7 +48,7 @@ npm run test:frontend
 npm run test:visual        # isolated HTTPS/Edge screenshots + keyboard/CSP checks (after build)
 npm run lint
 npm run build
-npm run start:production  # migrate, then serve API and built SPA
+npm run start:production  # backup/bootstrap persistent DB, then serve API and built SPA
 ```
 
 ## Contributor rules
@@ -93,11 +93,12 @@ Approved non-initial revisions award the same 20 contribution points as an accep
 ```bash
 npm ci
 npm run build
-npm run db:migrate
-NODE_ENV=production npm start
+NODE_ENV=production DATABASE_PATH=/absolute/persistent/csit-sheet.sqlite JWT_SECRET=<secret> npm run start:production
 ```
 
-When `NODE_ENV=production`, Express serves `frontend/dist` and binds to `0.0.0.0` by default. Back up the SQLite database before migration and put it on persistent storage.
+When `NODE_ENV=production`, Express serves `frontend/dist` and binds to `0.0.0.0` by default. Production startup requires an absolute persistent database path, creates a one-generation pre-deploy backup, applies migrations, and imports only missing tracked registrar workbook versions. It never inserts demo accounts.
+
+The supported deployment is a single Render web service with a persistent disk, defined in `render.yaml`. See [DEPLOYMENT.md](DEPLOYMENT.md) for the Blueprint, environment, verification, persistence test, and rollback runbook.
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
@@ -111,9 +112,9 @@ When `NODE_ENV=production`, Express serves `frontend/dist` and binds to `0.0.0.0
 | `REFRESH_TOKEN_TTL_DAYS` | no | Refresh session duration, default `7`. |
 | `VITE_API_URL` | when frontend is separate | API base URL at frontend build time. |
 
-`GET /api/health` returns `{ "status": "ok" }`.
+`GET /api/health` checks SQLite and returns `{ "status": "ok", "database": "ready" }`.
 
-For an existing deployment, back up the database and run `npm run db:migrate`, `npm run db:seed`, then `npm run db:import-courses`. The two registrar workbooks are stored in `backend/data/registrar/`. Migration is backward-compatible; seed imports/upserts curriculum courses only and does not invent teachers or offerings. No new environment variable is required.
+Never run `db:seed` in production; it is exclusively for local demo data. The two reference workbooks are stored in `backend/data/registrar/` and production bootstrap imports each workbook hash once.
 
 ## Security and limits
 

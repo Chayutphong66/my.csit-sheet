@@ -4,7 +4,7 @@ node_modules/
 dist/
 .vite/
 coverage/
-artifacts/visual-qa/
+artifacts/
 .nyc_output/
 
 # Environment files

@@ -14,6 +14,7 @@ import notificationRoutes from './routes/notification.routes.js'
 import { courseRouter, documentRouter } from './routes/document.routes.js'
 import contributorRoutes from './routes/contributor.routes.js'
 import { curriculumRouter, suggestionRouter } from './routes/academic.routes.js'
+import { db } from './data/database.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -25,10 +26,13 @@ const configuredOrigins = (process.env.ALLOWED_ORIGINS || process.env.FRONTEND_U
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean)
+const platformOrigins = [process.env.RENDER_EXTERNAL_URL]
+  .map((origin) => String(origin || '').trim())
+  .filter(Boolean)
 const allowedOrigins = configuredOrigins.length > 0
-  ? configuredOrigins
+  ? [...new Set([...configuredOrigins, ...platformOrigins])]
   : isProduction
-    ? []
+    ? platformOrigins
     : ['http://127.0.0.1:5173', 'http://localhost:5173']
 
 app.use(helmet({
@@ -57,8 +61,13 @@ app.use((req, res, next) => {
   next()
 })
 
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok' })
+app.get('/api/health', (_req, res, next) => {
+  try {
+    db.prepare('SELECT 1').get()
+    res.json({ status: 'ok', database: 'ready' })
+  } catch (error) {
+    next(error)
+  }
 })
 
 app.use('/api/auth', authRoutes)

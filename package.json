@@ -12,6 +12,7 @@
     "dev:backend": "npm run dev --workspace backend",
     "build": "npm run build --workspace frontend",
     "db:migrate": "npm run db:migrate --workspace backend",
+    "db:bootstrap-production": "npm run db:bootstrap-production --workspace backend",
     "db:seed": "npm run db:seed --workspace backend",
     "db:import-courses": "npm run db:import-courses --workspace backend",
     "db:cleanup-files": "npm run db:cleanup-files --workspace backend",
@@ -21,7 +22,7 @@
     "test:backend": "npm run test --workspace backend",
     "test:frontend": "npm run test --workspace frontend",
     "test:visual": "node scripts/visual-qa.mjs",
-    "start:production": "npm run db:migrate && npm run start --workspace backend",
+    "start:production": "npm run db:bootstrap-production && npm run start --workspace backend",
     "start": "npm run start --workspace backend"
   },
   "workspaces": [
