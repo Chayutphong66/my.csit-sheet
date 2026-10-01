@@ -11,7 +11,7 @@ export default [
     languageOptions: { globals: globals.node }
   },
   {
-    files: ['netlify/functions/**/*.js'],
+    files: ['netlify/functions/**/*.{js,mjs}'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } }
   },
   {
