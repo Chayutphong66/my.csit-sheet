@@ -25,7 +25,7 @@ The service runs `npm ci && npm run build`, then `npm run start:production`. On 
 
 ## Environment variables
 
-The Blueprint supplies all required values. Variable names are documented here; secret values must stay in Render and must never be committed.
+The Blueprint supplies generated/default values and prompts the owner for `ALLOWED_ORIGINS`. Enter the exact Netlify production origin (for example, `https://site-name.netlify.app`, with no trailing slash). Variable names are documented here; secret values must stay in Render and must never be committed.
 
 | Variable | Requirement | Purpose |
 | --- | --- | --- |
@@ -36,7 +36,7 @@ The Blueprint supplies all required values. Variable names are documented here; 
 | `REFRESH_TOKEN_TTL_DAYS` | optional | Refresh-session lifetime; Blueprint uses `7`. |
 | `PORT` | platform supplied | Render's HTTP port. |
 | `HOST` | optional | Production defaults to `0.0.0.0`. |
-| `ALLOWED_ORIGINS` | optional | Extra comma-separated HTTPS origins. The service's Render URL is allowed automatically. |
+| `ALLOWED_ORIGINS` | required for Netlify | Exact Netlify production origin, or comma-separated HTTPS origins. The service's Render URL is allowed automatically. |
 | `FRONTEND_URL` | optional | Another explicit frontend origin, if one is introduced later. |
 | `VITE_API_URL` | not needed here | Build-time API base for a separately hosted frontend. Same-origin production uses `/api`. |
 

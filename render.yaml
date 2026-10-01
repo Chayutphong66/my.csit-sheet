@@ -21,6 +21,8 @@ services:
         value: 15m
       - key: REFRESH_TOKEN_TTL_DAYS
         value: 7
+      - key: ALLOWED_ORIGINS
+        sync: false
     disk:
       name: csit-sheet-data
       mountPath: /var/data
