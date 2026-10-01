@@ -1,57 +1,28 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { spawnSync } from 'node:child_process'
-import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 
-const backendRoot = path.resolve(import.meta.dirname, '..')
-const bootstrapScript = path.join(backendRoot, 'src/data/bootstrapProduction.js')
+const root = path.resolve(import.meta.dirname, '../..')
 
-function runBootstrap(databasePath) {
-  return spawnSync(process.execPath, [bootstrapScript], {
-    cwd: backendRoot,
-    env: {
-      ...process.env,
-      NODE_ENV: 'production',
-      DATABASE_PATH: databasePath,
-      JWT_SECRET: 'deployment-test-only-not-a-production-secret'
-    },
-    encoding: 'utf8'
-  })
-}
-
-test('production bootstrap requires an absolute persistent database path', () => {
-  const result = runBootstrap('relative.sqlite')
-  assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /absolute persistent path/)
+test('Netlify configuration builds the SPA and rewrites API traffic to the function', () => {
+  const config = readFileSync(path.join(root, 'netlify.toml'), 'utf8')
+  assert.match(config, /publish = "frontend\/dist"/)
+  assert.match(config, /functions = "netlify\/functions"/)
+  assert.match(config, /from = "\/api\/\*"[\s\S]*to = "\/\.netlify\/functions\/api\/:splat"/)
+  assert.doesNotMatch(config, /DATABASE_URL|NETLIFY_DB_URL|JWT_SECRET/)
 })
 
-test('production bootstrap preserves data, skips demo users, and is idempotent', () => {
-  const directory = mkdtempSync(path.join(tmpdir(), 'csit-production-'))
-  const databasePath = path.join(directory, 'production.sqlite')
+test('production schema stores Blob keys and never seeds users', () => {
+  const migration = readFileSync(path.join(root, 'netlify/database/migrations/20261002000000_initial_schema/migration.sql'), 'utf8')
+  assert.match(migration, /CREATE TABLE file_assets[\s\S]*blob_key TEXT NOT NULL/)
+  assert.match(migration, /file_data BYTEA/)
+  assert.match(migration, /INSERT INTO programs/)
+  assert.doesNotMatch(migration, /INSERT INTO users/)
+})
 
-  const firstRun = runBootstrap(databasePath)
-  assert.equal(firstRun.status, 0, firstRun.stderr || firstRun.stdout)
-
-  let database = new DatabaseSync(databasePath)
-  assert.equal(database.prepare('SELECT COUNT(*) count FROM users').get().count, 0)
-  assert.equal(database.prepare('SELECT COUNT(*) count FROM programs').get().count, 2)
-  assert.ok(database.prepare('SELECT COUNT(*) count FROM course_offerings').get().count > 0)
-  assert.equal(database.prepare("SELECT COUNT(*) count FROM course_imports WHERE status='COMPLETED'").get().count, 2)
-  database.prepare(`INSERT INTO users(id,username,display_name,email,password,role)
-    VALUES(?,?,?,?,?,?)`).run('persistence-marker', 'persist', 'Persist', 'persist@example.test', 'not-a-real-hash', 'USER')
-  database.close()
-
-  const secondRun = runBootstrap(databasePath)
-  assert.equal(secondRun.status, 0, secondRun.stderr || secondRun.stdout)
-  assert.ok(existsSync(`${databasePath}.predeploy-backup`))
-
-  database = new DatabaseSync(databasePath)
-  assert.equal(database.prepare("SELECT COUNT(*) count FROM users WHERE id='persistence-marker'").get().count, 1)
-  assert.equal(database.prepare("SELECT COUNT(*) count FROM course_imports WHERE status='COMPLETED'").get().count, 2)
-  assert.deepEqual(database.prepare('PRAGMA foreign_key_check').all(), [])
-  assert.equal(database.prepare('PRAGMA integrity_check').get().integrity_check, 'ok')
-  database.close()
+test('Netlify Function delegates to the existing Express application', () => {
+  const entry = readFileSync(path.join(root, 'netlify/functions/api.js'), 'utf8')
+  assert.match(entry, /serverless-http/)
+  assert.match(entry, /backend\/src\/app\.js/)
 })

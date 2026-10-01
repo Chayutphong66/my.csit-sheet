@@ -1,19 +1,19 @@
-import { apiClient, request } from '@/services/api'
+import { apiClient, request, requestWithChunkedFile } from '@/services/api'
 
 // Admin operations: user management, document management, approval / rejection.
 export const adminApi = {
   adminUploadRequests: (status = '') => request({ url: `/admin/upload-requests${status ? `?status=${encodeURIComponent(status)}` : ''}` }),
   adminDownloadUploadRequestFile: (id) =>
     apiClient
-      .get(`/admin/upload-requests/${id}/file`, { responseType: 'blob' })
+      .get(import.meta.env.PROD ? `/blob/request/${encodeURIComponent(id)}/view` : `/admin/upload-requests/${id}/file`, { responseType: 'blob' })
       .then((response) => response.data),
   publicDocumentFile: (match, action = 'view') =>
     apiClient
-      .get(`/documents/${match.documentType.toLowerCase()}/${match.publicDocumentId}/${action}`, { responseType: 'blob' })
+      .get(import.meta.env.PROD ? `/blob/${match.documentType.toLowerCase()}/${encodeURIComponent(match.publicDocumentId)}/${action}` : `/documents/${match.documentType.toLowerCase()}/${match.publicDocumentId}/${action}`, { responseType: 'blob' })
       .then((response) => response.data),
   adminUsers: () => request({ url: '/admin/users' }),
   adminCreateUploadRequest: (data) =>
-    request({ url: '/admin/upload-requests', method: 'POST', data }),
+    requestWithChunkedFile({ url: '/admin/upload-requests', method: 'POST', data }),
   approveUploadRequest: (id, data) =>
     request({ url: `/admin/upload-requests/${id}/approve`, method: 'PATCH', data }),
   rejectUploadRequest: (id, reason) =>
@@ -26,11 +26,11 @@ export const adminApi = {
     request({ url: `/admin/upload-requests/${id}/reject-duplicate`, method: 'PATCH', data: { reason } }),
   pending: () => request({ url: '/admin/sheets/pending' }),
   stats: () => request({ url: '/admin/stats' }),
-  previewCourseImport: (data) => request({ url: '/admin/course-imports/preview', method: 'POST', data }),
-  confirmCourseImport: (data) => request({ url: '/admin/course-imports/confirm', method: 'POST', data }),
+  previewCourseImport: (data) => requestWithChunkedFile({ url: '/admin/course-imports/preview', method: 'POST', data }),
+  confirmCourseImport: (data) => requestWithChunkedFile({ url: '/admin/course-imports/confirm', method: 'POST', data }),
   courseImportHistory: () => request({ url: '/admin/course-imports' }),
   revisions: (status = '') => request({ url: `/admin/revisions?status=${encodeURIComponent(status)}` }),
-  revisionFile: (id) => apiClient.get(`/admin/revisions/${encodeURIComponent(id)}/file`, { responseType: 'blob' }).then(response => response.data),
+  revisionFile: (id) => apiClient.get(import.meta.env.PROD ? `/blob/version/${encodeURIComponent(id)}/view` : `/admin/revisions/${encodeURIComponent(id)}/file`, { responseType: 'blob' }).then(response => response.data),
   approveRevision: (id) => request({ url: `/admin/revisions/${encodeURIComponent(id)}/approve`, method: 'PATCH' }),
   rejectRevision: (id, reason) => request({ url: `/admin/revisions/${encodeURIComponent(id)}/reject`, method: 'PATCH', data: { reason } }),
   restoreVersion: (document, versionId) => request({ url: `/admin/documents/${document.documentType.toLowerCase()}/${encodeURIComponent(document.id)}/restore/${encodeURIComponent(versionId)}`, method: 'POST' }),

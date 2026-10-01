@@ -1,4 +1,4 @@
-import { db } from '../data/database.js'
+import { db } from '../data/databaseClient.js'
 
 function toSession(row) {
   if (!row) return null
@@ -12,29 +12,29 @@ function toSession(row) {
   }
 }
 
-export function createRefreshSession(session) {
-  db.prepare(`
+export async function createRefreshSession(session) {
+  await db.prepare(`
     INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at)
     VALUES (?, ?, ?, ?)
   `).run(session.id, session.userId, session.tokenHash, session.expiresAt)
 
-  return findRefreshSessionByHash(session.tokenHash)
+  return await findRefreshSessionByHash(session.tokenHash)
 }
 
-export function findRefreshSessionByHash(tokenHash) {
-  return toSession(db.prepare('SELECT * FROM refresh_tokens WHERE token_hash = ?').get(tokenHash))
+export async function findRefreshSessionByHash(tokenHash) {
+  return toSession(await db.prepare('SELECT * FROM refresh_tokens WHERE token_hash = ?').get(tokenHash))
 }
 
-export function revokeRefreshSessionByHash(tokenHash) {
-  db.prepare(`
+export async function revokeRefreshSessionByHash(tokenHash) {
+  await db.prepare(`
     UPDATE refresh_tokens
     SET revoked_at = CURRENT_TIMESTAMP
     WHERE token_hash = ? AND revoked_at IS NULL
   `).run(tokenHash)
 }
 
-export function revokeExpiredRefreshSessions() {
-  db.prepare(`
+export async function revokeExpiredRefreshSessions() {
+  await db.prepare(`
     UPDATE refresh_tokens
     SET revoked_at = CURRENT_TIMESTAMP
     WHERE revoked_at IS NULL AND expires_at <= CURRENT_TIMESTAMP

@@ -1,7 +1,11 @@
-import { apiClient, request } from '@/services/api'
+import { apiClient, request, requestWithChunkedFile } from '@/services/api'
 
 function fileResponse(response) {
   return { blob: response.data, contentType: response.headers?.['content-type'] }
+}
+
+function filePath(kind, id, action, legacy) {
+  return import.meta.env.PROD ? `/blob/${kind}/${encodeURIComponent(id)}/${action}` : legacy
 }
 
 export const documentApi = {
@@ -11,17 +15,17 @@ export const documentApi = {
   search: (query, type = '') => request({ url: `/documents/search?q=${encodeURIComponent(query ?? '')}&type=${encodeURIComponent(type)}` }),
   detail: (document) => request({ url: `/documents/${document.documentType.toLowerCase()}/${encodeURIComponent(document.id)}` }),
   versions: (document) => request({ url: `/documents/${document.documentType.toLowerCase()}/${encodeURIComponent(document.id)}/versions` }),
-  submitRevision: (document, data) => request({ url: `/documents/${document.documentType.toLowerCase()}/${encodeURIComponent(document.id)}/revisions`, method: 'POST', data }),
+  submitRevision: (document, data) => requestWithChunkedFile({ url: `/documents/${document.documentType.toLowerCase()}/${encodeURIComponent(document.id)}/revisions`, method: 'POST', data }),
   myRevisions: () => request({ url: '/documents/my/revisions' }),
-  viewVersion: (version) => apiClient.get(`/documents/${version.documentType.toLowerCase()}/${version.documentId}/versions/${version.id}/view`, { responseType: 'blob' }).then(fileResponse),
-  downloadVersion: (version) => apiClient.get(`/documents/${version.documentType.toLowerCase()}/${version.documentId}/versions/${version.id}/download`, { responseType: 'blob' }).then(fileResponse),
+  viewVersion: (version) => apiClient.get(filePath('version', version.id, 'view', `/documents/${version.documentType.toLowerCase()}/${version.documentId}/versions/${version.id}/view`), { responseType: 'blob' }).then(fileResponse),
+  downloadVersion: (version) => apiClient.get(filePath('version', version.id, 'download', `/documents/${version.documentType.toLowerCase()}/${version.documentId}/versions/${version.id}/download`), { responseType: 'blob' }).then(fileResponse),
   helpful: (document, helpful) => request({
     url: `/documents/${document.documentType.toLowerCase()}/${document.id}/helpful`,
     method: 'PUT',
     data: { helpful }
   }),
-  view: (document) => apiClient.get(`/documents/${document.documentType.toLowerCase()}/${document.id}/view`, { responseType: 'blob' }).then(fileResponse),
-  download: (document) => apiClient.get(`/documents/${document.documentType.toLowerCase()}/${document.id}/download`, { responseType: 'blob' }).then(fileResponse)
+  view: (document) => apiClient.get(filePath(document.documentType.toLowerCase(), document.id, 'view', `/documents/${document.documentType.toLowerCase()}/${document.id}/view`), { responseType: 'blob' }).then(fileResponse),
+  download: (document) => apiClient.get(filePath(document.documentType.toLowerCase(), document.id, 'download', `/documents/${document.documentType.toLowerCase()}/${document.id}/download`), { responseType: 'blob' }).then(fileResponse)
 }
 
 export function openDocumentBlob(blob) {

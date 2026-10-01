@@ -219,6 +219,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_document_helpful_document ON document_helpful_votes(document_type, document_id);
 `)
 
+const fileAssetCols = db.prepare('PRAGMA table_info(file_assets)').all().map((column) => column.name)
+if (!fileAssetCols.includes('blob_key')) db.exec('ALTER TABLE file_assets ADD COLUMN blob_key TEXT')
+
 const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name)
 if (!userCols.includes('display_name')) db.exec("ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT ''")
 if (!userCols.includes('program_code')) db.exec("ALTER TABLE users ADD COLUMN program_code TEXT NOT NULL DEFAULT ''")

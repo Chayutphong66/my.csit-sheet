@@ -1,10 +1,11 @@
 import crypto from 'node:crypto'
-import { db } from '../data/database.js'
+import { db, withTransaction } from '../data/databaseClient.js'
 import { createLecture } from './lecture.repository.js'
 import { createLectureFile, lectureHasFile } from './lectureFile.repository.js'
 import { createSheetFile, sheetHasFile } from './sheetFile.repository.js'
 import { getOrCreateFileAsset } from './fileAsset.repository.js'
 import { calculateContentFingerprint } from '../services/contentFingerprint.service.js'
+import { readFileBytes } from '../services/fileStorage.service.js'
 import { ensureInitialVersion } from './documentVersion.repository.js'
 import {
   calculateContributionScore,
@@ -50,10 +51,10 @@ const requestSelect = `
   LEFT JOIN programs ON programs.id = upload_requests.program_id
 `
 
-function toUploadRequest(row) {
+async function toUploadRequest(row) {
   if (!row) return null
-  const teachers = db.prepare(`SELECT instructors.id,instructors.name FROM upload_request_teachers link JOIN instructors ON instructors.id=link.teacher_id WHERE link.upload_request_id=? ORDER BY instructors.name`).all(row.id)
-  const teacherSuggestions = db.prepare(`SELECT id,teacher_name teacherName,suggestion_type suggestionType,note,status,approval_scope approvalScope FROM teacher_suggestions WHERE upload_request_id=? ORDER BY created_at`).all(row.id)
+  const teachers = await db.prepare(`SELECT instructors.id,instructors.name FROM upload_request_teachers link JOIN instructors ON instructors.id=link.teacher_id WHERE link.upload_request_id=? ORDER BY instructors.name`).all(row.id)
+  const teacherSuggestions = await db.prepare(`SELECT id,teacher_name teacherName,suggestion_type suggestionType,note,status,approval_scope approvalScope FROM teacher_suggestions WHERE upload_request_id=? ORDER BY created_at`).all(row.id)
   return {
     id: row.id,
     userId: row.user_id,
@@ -101,23 +102,23 @@ function toUploadRequest(row) {
   }
 }
 
-export function listCourses() {
-  return db.prepare('SELECT id, code, name, description FROM courses ORDER BY code, name').all()
+export async function listCourses() {
+  return await db.prepare('SELECT id, code, name, description FROM courses ORDER BY code, name').all()
 }
 
-export function listInstructors() {
-  return db.prepare('SELECT id, name FROM instructors ORDER BY name').all()
+export async function listInstructors() {
+  return await db.prepare('SELECT id, name FROM instructors ORDER BY name').all()
 }
 
-export function findCourseById(id) {
-  return db.prepare('SELECT id, name FROM courses WHERE id = ?').get(id)
+export async function findCourseById(id) {
+  return await db.prepare('SELECT id, name FROM courses WHERE id = ?').get(id)
 }
 
-export function findInstructorById(id) {
-  return db.prepare('SELECT id, name FROM instructors WHERE id = ?').get(id)
+export async function findInstructorById(id) {
+  return await db.prepare('SELECT id, name FROM instructors WHERE id = ?').get(id)
 }
 
-export function createUploadRequest({
+export async function createUploadRequest({
   userId,
   title,
   fileName,
@@ -136,15 +137,15 @@ export function createUploadRequest({
   description = '',
   suggestionIds = []
 }) {
-  const course = courseId ? findCourseById(courseId) : null
+  const course = courseId ? await findCourseById(courseId) : null
   const teacherIds = [...new Set((instructorIds || (instructorId ? [instructorId] : [])).filter(Boolean))]
-  const instructors = teacherIds.map(findInstructorById).filter(Boolean)
+  const instructors = (await Promise.all(teacherIds.map(findInstructorById))).filter(Boolean)
   const instructor = instructors[0] || null
   const id = crypto.randomUUID()
   const fileHash = fileData ? crypto.createHash('sha256').update(Buffer.from(fileData)).digest('hex') : ''
   const contentHash = fileData ? calculateContentFingerprint(fileData, fileType) : ''
   const normalizedTitle = normalizeTitle(title)
-  const duplicateStatus = classifyDuplicate({
+  const duplicateStatus = await classifyDuplicate({
     fileHash, contentHash, courseId: course?.id ?? '', academicYear, semester, documentType, normalizedTitle
   })
 
@@ -152,16 +153,15 @@ export function createUploadRequest({
   // NULL (not the '' column default) until a sheet is created / an admin decides,
   // because SQLite validates a non-NULL FK value against the parent table and an
   // empty string matches no row -> "FOREIGN KEY constraint failed".
-  db.exec('BEGIN')
-  try {
-    const asset = fileData ? getOrCreateFileAsset({
+  await withTransaction(async () => {
+    const asset = fileData ? await getOrCreateFileAsset({
       binaryHash: fileHash,
       contentHash,
       originalFilename: fileName,
       mimeType: fileType,
       fileData
     }) : null
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO upload_requests (
         id, user_id, lecture_id, sheet_id, title, file_name, file_size, file_type, file_data, file_asset_id,
         course_id, course_name, document_type, academic_year, semester, upload_date, instructor_id, instructor_name, course_offering_id, program_id, description,
@@ -174,33 +174,26 @@ export function createUploadRequest({
       courseId: course?.id ?? '', courseName: course?.name ?? '', documentType: normalizeDocumentType(documentType) ?? 'Sheet', academicYear,
       semester, uploadDate, instructorId: instructor?.id ?? '', instructorName: instructors.map(item => item.name).join(', '), courseOfferingId,
       programId, description, fileHash, contentHash, normalizedTitle, duplicateStatus })
-    const addTeacher = db.prepare('INSERT OR IGNORE INTO upload_request_teachers(upload_request_id,teacher_id) VALUES(?,?)')
-    for (const teacher of instructors) addTeacher.run(id, teacher.id)
+    for (const teacher of instructors) await db.prepare('INSERT OR IGNORE INTO upload_request_teachers(upload_request_id,teacher_id) VALUES(?,?)').run(id, teacher.id)
     if (suggestionIds.length) {
-      const attachSuggestion = db.prepare(`UPDATE teacher_suggestions SET upload_request_id=? WHERE id=? AND submitted_by_user_id=? AND status='PENDING' AND upload_request_id IS NULL AND course_id=? AND academic_year=? AND semester=?`)
       for (const suggestionId of suggestionIds) {
-        const result = attachSuggestion.run(id, suggestionId, userId, course?.id || '', academicYear, semester)
+        const result = await db.prepare(`UPDATE teacher_suggestions SET upload_request_id=? WHERE id=? AND submitted_by_user_id=? AND status='PENDING' AND upload_request_id IS NULL AND course_id=? AND academic_year=? AND semester=?`).run(id, suggestionId, userId, course?.id || '', academicYear, semester)
         if (!result.changes) throw new Error('Invalid or unrelated teacher suggestion')
       }
     }
-    db.exec('COMMIT')
-  } catch (error) {
-    db.exec('ROLLBACK')
-    throw error
-  }
+  })
 
-  return findUploadRequestById(id)
+  return await findUploadRequestById(id)
 }
 
-export function findUploadRequestsByUserId(userId) {
-  return db
+export async function findUploadRequestsByUserId(userId) {
+  return Promise.all((await db
     .prepare(`${requestSelect} WHERE upload_requests.user_id = ? ORDER BY upload_requests.created_at DESC`)
-    .all(userId)
-    .map(toUploadRequest)
+    .all(userId)).map(toUploadRequest))
 }
 
-export function findContributionSummaryByUserId(userId, limit = 5) {
-  const totals = db.prepare(`
+export async function findContributionSummaryByUserId(userId, limit = 5) {
+  const totals = await db.prepare(`
     SELECT COUNT(*) AS total,
       SUM(CASE WHEN document_type = 'Lecture' THEN 1 ELSE 0 END) AS lectures,
       SUM(CASE WHEN document_type = 'Sheet' THEN 1 ELSE 0 END) AS sheets,
@@ -211,7 +204,7 @@ export function findContributionSummaryByUserId(userId, limit = 5) {
       SUM(CASE WHEN status IN ('REJECTED', 'FAILED') THEN 1 ELSE 0 END) AS rejected
     FROM upload_requests WHERE user_id = ?
   `).get(userId)
-  const impact = db.prepare(`
+  const impact = await db.prepare(`
     WITH owned_documents(document_type, id, view_count, download_count) AS (
       SELECT 'Lecture', id, view_count, download_count FROM lectures WHERE uploader_id = ? AND status = 'APPROVED'
       UNION ALL
@@ -228,7 +221,7 @@ export function findContributionSummaryByUserId(userId, limit = 5) {
            ) AS qualified_downloads
     FROM owned_documents
   `).get(userId, userId)
-  const recentImpactRows = db.prepare(`
+  const recentImpactRows = await db.prepare(`
     SELECT lectures.source_request_id, 'Lecture' AS document_type, lectures.id AS document_id,
            lectures.view_count, lectures.download_count,
            (SELECT COUNT(*) FROM document_helpful_votes votes
@@ -242,7 +235,7 @@ export function findContributionSummaryByUserId(userId, limit = 5) {
   `).all(userId, userId)
   const impactByRequest = new Map(recentImpactRows.map((row) => [row.source_request_id, row]))
   const published = Number(totals.rewarded_published || 0)
-  const revisionTotals = db.prepare(`SELECT COUNT(*) accepted_revisions,COUNT(DISTINCT document_type || ':' || document_id) contributed_documents FROM document_versions WHERE submitted_by=? AND status='APPROVED' AND revision_type NOT IN ('INITIAL','RESTORE')`).get(userId)
+  const revisionTotals = await db.prepare(`SELECT COUNT(*) accepted_revisions,COUNT(DISTINCT document_type || ':' || document_id) contributed_documents FROM document_versions WHERE submitted_by=? AND status='APPROVED' AND revision_type NOT IN ('INITIAL','RESTORE')`).get(userId)
   const acceptedRevisions = Number(revisionTotals.accepted_revisions || 0)
   const contributedDocuments = Number(revisionTotals.contributed_documents || 0)
   const qualifiedDownloads = Number(impact.qualified_downloads || 0)
@@ -263,7 +256,7 @@ export function findContributionSummaryByUserId(userId, limit = 5) {
     contributionScore,
     contributorLevel: contributorLevel(contributionScore),
     badges: contributionBadges({ published: published + acceptedRevisions, acceptedRevisions, contributedDocuments, qualifiedDownloads, helpful }),
-    recent: findUploadRequestsByUserId(userId).slice(0, limit).map((request) => {
+    recent: (await findUploadRequestsByUserId(userId)).slice(0, limit).map((request) => {
       const row = impactByRequest.get(request.id)
       return {
         ...request,
@@ -276,40 +269,39 @@ export function findContributionSummaryByUserId(userId, limit = 5) {
   }
 }
 
-export function findUploadRequestById(id) {
-  return toUploadRequest(db.prepare(`${requestSelect} WHERE upload_requests.id = ?`).get(id))
+export async function findUploadRequestById(id) {
+  return toUploadRequest(await db.prepare(`${requestSelect} WHERE upload_requests.id = ?`).get(id))
 }
 
-export function findUploadRequestFileById(id) {
-  const row = db
+export async function findUploadRequestFileById(id) {
+  const row = await db
     .prepare(`
       SELECT upload_requests.file_name, upload_requests.file_type,
              COALESCE(file_assets.file_data, upload_requests.file_data) AS file_data,
-             upload_requests.file_asset_id
+             upload_requests.file_asset_id, file_assets.blob_key
       FROM upload_requests
       LEFT JOIN file_assets ON file_assets.id = upload_requests.file_asset_id
       WHERE upload_requests.id = ?
     `)
     .get(id)
   if (!row) return null
-  return { fileName: row.file_name, fileType: row.file_type, fileData: row.file_data, fileAssetId: row.file_asset_id }
+  return { fileName: row.file_name, fileType: row.file_type, fileData: row.file_data || await readFileBytes(row.blob_key), fileAssetId: row.file_asset_id }
 }
 
-export function findAllUploadRequests(reviewStatus = '') {
+export async function findAllUploadRequests(reviewStatus = '') {
   const normalized = String(reviewStatus || '').trim().toUpperCase()
-  return db
+  return Promise.all((await db
     .prepare(`${requestSelect}
       WHERE @status = ''
         OR (@status = 'PENDING' AND upload_requests.status IN ('PENDING','PROCESSING','APPROVED'))
         OR (@status = 'APPROVED' AND upload_requests.status = 'COMPLETED')
         OR (@status = 'REJECTED' AND upload_requests.status IN ('REJECTED','FAILED'))
       ORDER BY COALESCE(upload_requests.decided_at, upload_requests.created_at) DESC`)
-    .all({ status: normalized })
-    .map(toUploadRequest)
+    .all({ status: normalized })).map(toUploadRequest))
 }
 
-export function findDuplicateMatches(requestOrId) {
-  const request = typeof requestOrId === 'string' ? findUploadRequestById(requestOrId) : requestOrId
+export async function findDuplicateMatches(requestOrId) {
+  const request = typeof requestOrId === 'string' ? await findUploadRequestById(requestOrId) : requestOrId
   if (!request) return []
   const type = normalizeDocumentType(request.documentType)
   const params = {
@@ -322,7 +314,7 @@ export function findDuplicateMatches(requestOrId) {
     type,
     title: normalizeTitle(request.title)
   }
-  const rows = db.prepare(`
+  const rows = await db.prepare(`
     SELECT 'REQUEST' AS source, requests.id, requests.title, requests.file_name,
            requests.document_type, requests.status, requests.file_hash, requests.content_hash,
            requests.course_id, courses.code AS course_code, requests.course_name,
@@ -390,8 +382,8 @@ export function findDuplicateMatches(requestOrId) {
   })
 }
 
-function classifyDuplicate(candidate) {
-  const matches = findDuplicateMatches({ id: '', title: candidate.normalizedTitle, fileHash: candidate.fileHash,
+async function classifyDuplicate(candidate) {
+  const matches = await findDuplicateMatches({ id: '', title: candidate.normalizedTitle, fileHash: candidate.fileHash,
     contentHash: candidate.contentHash,
     courseId: candidate.courseId, academicYear: candidate.academicYear, semester: candidate.semester,
     documentType: candidate.documentType })
@@ -401,8 +393,8 @@ function classifyDuplicate(candidate) {
   return 'NONE'
 }
 
-export function updateUploadRequestStatus({ id, status, adminId = '', reason = '', rejectionType = 'STANDARD' }) {
-  const result = db
+export async function updateUploadRequestStatus({ id, status, adminId = '', reason = '', rejectionType = 'STANDARD' }) {
+  const result = await db
     .prepare(`
       UPDATE upload_requests
       SET status = ?,
@@ -415,10 +407,10 @@ export function updateUploadRequestStatus({ id, status, adminId = '', reason = '
     `)
     .run(status, reason, rejectionType, adminId || null, id)
 
-  return result.changes > 0 ? findUploadRequestById(id) : null
+  return result.changes > 0 ? await findUploadRequestById(id) : null
 }
 
-export function updateUploadRequestCategory({
+export async function updateUploadRequestCategory({
   id,
   courseId,
   documentType,
@@ -426,14 +418,14 @@ export function updateUploadRequestCategory({
   semester,
   instructorId
 }) {
-  const course = findCourseById(courseId)
-  const instructor = instructorId ? findInstructorById(instructorId) : null
-  const offering = instructor ? db.prepare(`SELECT offerings.id FROM course_offerings offerings JOIN course_offering_teachers link ON link.offering_id=offerings.id WHERE offerings.course_id=? AND offerings.academic_year=? AND offerings.semester=? AND link.teacher_id=? LIMIT 1`).get(courseId, academicYear, semester, instructorId) : null
+  const course = await findCourseById(courseId)
+  const instructor = instructorId ? await findInstructorById(instructorId) : null
+  const offering = instructor ? await db.prepare(`SELECT offerings.id FROM course_offerings offerings JOIN course_offering_teachers link ON link.offering_id=offerings.id WHERE offerings.course_id=? AND offerings.academic_year=? AND offerings.semester=? AND link.teacher_id=? LIMIT 1`).get(courseId, academicYear, semester, instructorId) : null
   const normalizedType = normalizeDocumentType(documentType)
 
   if (!course || !normalizedType || (instructorId && (!instructor || !offering))) return null
 
-  const result = db
+  const result = await db
     .prepare(`
       UPDATE upload_requests
       SET course_id = ?,
@@ -449,7 +441,7 @@ export function updateUploadRequestCategory({
     `)
     .run(course.id, course.name, normalizedType, academicYear, semester, instructor?.id || '', instructor?.name || '', offering?.id || null, id)
 
-  return result.changes > 0 ? findUploadRequestById(id) : null
+  return result.changes > 0 ? await findUploadRequestById(id) : null
 }
 
 function isLectureDocument(documentType) {
@@ -458,21 +450,21 @@ function isLectureDocument(documentType) {
 
 // Determine whether a request has already produced a public record, so publishing is
 // idempotent (re-approving, or a stray /complete call, never creates duplicates).
-function findPublishedRecord(request) {
+async function findPublishedRecord(request) {
   if (isLectureDocument(request.documentType)) {
     if (request.lectureId) {
-      const record = db.prepare('SELECT id FROM lectures WHERE id = ?').get(request.lectureId) ?? null
-      if (record) return { type: 'Lecture', id: record.id, hasFile: lectureHasFile(record.id) }
+      const record = await db.prepare('SELECT id FROM lectures WHERE id = ?').get(request.lectureId) ?? null
+      if (record) return { type: 'Lecture', id: record.id, hasFile: await lectureHasFile(record.id) }
     }
-    const record = db.prepare('SELECT id FROM lectures WHERE source_request_id = ?').get(request.id) ?? null
-    return record ? { type: 'Lecture', id: record.id, hasFile: lectureHasFile(record.id) } : null
+    const record = await db.prepare('SELECT id FROM lectures WHERE source_request_id = ?').get(request.id) ?? null
+    return record ? { type: 'Lecture', id: record.id, hasFile: await lectureHasFile(record.id) } : null
   }
   if (request.sheetId) {
-    const record = db.prepare('SELECT id FROM sheets WHERE id = ?').get(request.sheetId) ?? null
-    return record ? { type: 'Sheet', id: record.id, hasFile: sheetHasFile(record.id) } : null
+    const record = await db.prepare('SELECT id FROM sheets WHERE id = ?').get(request.sheetId) ?? null
+    return record ? { type: 'Sheet', id: record.id, hasFile: await sheetHasFile(record.id) } : null
   }
-  const record = db.prepare('SELECT id FROM sheets WHERE source_request_id = ?').get(request.id) ?? null
-  return record ? { type: 'Sheet', id: record.id, hasFile: sheetHasFile(record.id) } : null
+  const record = await db.prepare('SELECT id FROM sheets WHERE source_request_id = ?').get(request.id) ?? null
+  return record ? { type: 'Sheet', id: record.id, hasFile: await sheetHasFile(record.id) } : null
 }
 
 // Publish an approved upload request into the correct public catalog.
@@ -480,13 +472,13 @@ function findPublishedRecord(request) {
 // The public record is linked to this request via source_request_id so the stored
 // file BLOB stays reachable for download. Insert + status update run in one
 // transaction to avoid a half-published request.
-export function publishUploadRequest(id, { adminId = '' } = {}) {
-  const request = findUploadRequestById(id)
+export async function publishUploadRequest(id, { adminId = '' } = {}) {
+  const request = await findUploadRequestById(id)
   if (!request) return null
 
-  const existing = findPublishedRecord(request)
+  const existing = await findPublishedRecord(request)
   if (existing?.hasFile) {
-    db.prepare(
+    await db.prepare(
       `UPDATE upload_requests
        SET status = 'COMPLETED',
            decided_by = COALESCE(decided_by, ?),
@@ -495,22 +487,21 @@ export function publishUploadRequest(id, { adminId = '' } = {}) {
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`
     ).run(adminId || null, id)
-    return findUploadRequestById(id)
+    return await findUploadRequestById(id)
   }
 
-  const file = findUploadRequestFileById(id)
+  const file = await findUploadRequestFileById(id)
   if ((!existing || !existing.hasFile) && (!file || !file.fileData)) {
     throw new Error('No uploaded file is available to publish')
   }
 
   const subject = request.courseName || request.courseId || 'General'
 
-  db.exec('BEGIN')
-  try {
+  await withTransaction(async () => {
     if (isLectureDocument(request.documentType)) {
       const lecture = existing
         ? { id: existing.id }
-        : createLecture({
+        : await createLecture({
             title: request.title,
             subject,
             instructor: request.instructorName || '',
@@ -525,7 +516,7 @@ export function publishUploadRequest(id, { adminId = '' } = {}) {
             sourceRequestId: id
           })
       if (!existing?.hasFile) {
-        createLectureFile({
+        await createLectureFile({
           lectureId: lecture.id,
           uploaderId: request.userId,
           originalFilename: file.fileName || request.fileName || 'download',
@@ -535,19 +526,18 @@ export function publishUploadRequest(id, { adminId = '' } = {}) {
           fileData: Buffer.alloc(0)
         })
       }
-      ensureInitialVersion({
+      await ensureInitialVersion({
         documentType: 'Lecture', documentId: lecture.id, submittedBy: request.userId,
         originalFileName: file.fileName || request.fileName || 'download', mimeType: file.fileType || request.fileType || 'application/octet-stream',
         fileSize: request.fileSize, sha256: request.fileHash, fileAssetId: file.fileAssetId
       })
-      db.prepare('UPDATE lectures SET instructor_id = ?, course_offering_id = ? WHERE id = ?')
+      await db.prepare('UPDATE lectures SET instructor_id = ?, course_offering_id = ? WHERE id = ?')
         .run(request.instructorId || null, request.courseOfferingId || null, lecture.id)
-      db.prepare('UPDATE lectures SET program_id=? WHERE id=?').run(request.programId, lecture.id)
-      const copyLectureTeacher = db.prepare(`INSERT OR IGNORE INTO document_teachers(id,document_type,document_id,teacher_id,display_name) VALUES(?,'Lecture',?,?,?)`)
-      for (const teacher of request.teachers) copyLectureTeacher.run(crypto.randomUUID(), lecture.id, teacher.id, teacher.name)
-      const approvedLectureSuggestions = db.prepare(`SELECT id,teacher_name,existing_teacher_id FROM teacher_suggestions WHERE upload_request_id=? AND status='APPROVED'`).all(id)
-      for (const suggestion of approvedLectureSuggestions) db.prepare(`INSERT OR IGNORE INTO document_teachers(id,document_type,document_id,teacher_id,display_name,source_suggestion_id) VALUES(?,'Lecture',?,?,?,?)`).run(crypto.randomUUID(), lecture.id, suggestion.existing_teacher_id, suggestion.teacher_name, suggestion.id)
-      db.prepare(
+      await db.prepare('UPDATE lectures SET program_id=? WHERE id=?').run(request.programId, lecture.id)
+      for (const teacher of request.teachers) await db.prepare(`INSERT OR IGNORE INTO document_teachers(id,document_type,document_id,teacher_id,display_name) VALUES(?,'Lecture',?,?,?)`).run(crypto.randomUUID(), lecture.id, teacher.id, teacher.name)
+      const approvedLectureSuggestions = await db.prepare(`SELECT id,teacher_name,existing_teacher_id FROM teacher_suggestions WHERE upload_request_id=? AND status='APPROVED'`).all(id)
+      for (const suggestion of approvedLectureSuggestions) await db.prepare(`INSERT OR IGNORE INTO document_teachers(id,document_type,document_id,teacher_id,display_name,source_suggestion_id) VALUES(?,'Lecture',?,?,?,?)`).run(crypto.randomUUID(), lecture.id, suggestion.existing_teacher_id, suggestion.teacher_name, suggestion.id)
+      await db.prepare(
         `UPDATE upload_requests
          SET status = 'COMPLETED',
              decided_by = COALESCE(decided_by, ?),
@@ -561,7 +551,7 @@ export function publishUploadRequest(id, { adminId = '' } = {}) {
     } else {
       const sheetId = existing?.id ?? crypto.randomUUID()
       if (!existing) {
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO sheets (
             id, title, subject, status, created_at, download_count, uploader_id, reject_reason, source_request_id,
             course_id, academic_year, semester, normalized_title, file_hash, content_hash, view_count, updated_at,
@@ -571,12 +561,11 @@ export function publishUploadRequest(id, { adminId = '' } = {}) {
           request.semester || '', normalizeTitle(request.title), request.fileHash || '', request.contentHash || '',
           request.instructorId || null, request.courseOfferingId || null, request.programId, request.description || '')
       }
-      const copySheetTeacher = db.prepare(`INSERT OR IGNORE INTO document_teachers(id,document_type,document_id,teacher_id,display_name) VALUES(?,'Sheet',?,?,?)`)
-      for (const teacher of request.teachers) copySheetTeacher.run(crypto.randomUUID(), sheetId, teacher.id, teacher.name)
-      const approvedSheetSuggestions = db.prepare(`SELECT id,teacher_name,existing_teacher_id FROM teacher_suggestions WHERE upload_request_id=? AND status='APPROVED'`).all(id)
-      for (const suggestion of approvedSheetSuggestions) db.prepare(`INSERT OR IGNORE INTO document_teachers(id,document_type,document_id,teacher_id,display_name,source_suggestion_id) VALUES(?,'Sheet',?,?,?,?)`).run(crypto.randomUUID(), sheetId, suggestion.existing_teacher_id, suggestion.teacher_name, suggestion.id)
+      for (const teacher of request.teachers) await db.prepare(`INSERT OR IGNORE INTO document_teachers(id,document_type,document_id,teacher_id,display_name) VALUES(?,'Sheet',?,?,?)`).run(crypto.randomUUID(), sheetId, teacher.id, teacher.name)
+      const approvedSheetSuggestions = await db.prepare(`SELECT id,teacher_name,existing_teacher_id FROM teacher_suggestions WHERE upload_request_id=? AND status='APPROVED'`).all(id)
+      for (const suggestion of approvedSheetSuggestions) await db.prepare(`INSERT OR IGNORE INTO document_teachers(id,document_type,document_id,teacher_id,display_name,source_suggestion_id) VALUES(?,'Sheet',?,?,?,?)`).run(crypto.randomUUID(), sheetId, suggestion.existing_teacher_id, suggestion.teacher_name, suggestion.id)
       if (!existing?.hasFile) {
-        createSheetFile({
+        await createSheetFile({
           sheetId,
           uploaderId: request.userId,
           originalFilename: file.fileName || request.fileName || 'download',
@@ -586,13 +575,13 @@ export function publishUploadRequest(id, { adminId = '' } = {}) {
           fileData: Buffer.alloc(0)
         })
       }
-      ensureInitialVersion({
+      await ensureInitialVersion({
         documentType: 'Sheet', documentId: sheetId, submittedBy: request.userId,
         originalFileName: file.fileName || request.fileName || 'download', mimeType: file.fileType || request.fileType || 'application/octet-stream',
         fileSize: request.fileSize, sha256: request.fileHash, fileAssetId: file.fileAssetId
       })
 
-      db.prepare(`
+      await db.prepare(`
         UPDATE upload_requests
         SET status = 'COMPLETED',
             decided_by = COALESCE(decided_by, ?),
@@ -604,24 +593,20 @@ export function publishUploadRequest(id, { adminId = '' } = {}) {
         WHERE id = ?
       `).run(adminId || null, sheetId, id)
     }
-    db.exec('COMMIT')
-  } catch (error) {
-    db.exec('ROLLBACK')
-    throw error
-  }
+  })
 
-  return findUploadRequestById(id)
+  return await findUploadRequestById(id)
 }
 
-export function failUploadRequest(id) {
-  const result = db
+export async function failUploadRequest(id) {
+  const result = await db
     .prepare("UPDATE upload_requests SET status = 'FAILED', updated_at = CURRENT_TIMESTAMP WHERE id = ?")
     .run(id)
-  return result.changes > 0 ? findUploadRequestById(id) : null
+  return result.changes > 0 ? await findUploadRequestById(id) : null
 }
 
-export function countUploadRequestsByStatus(status) {
-  return db
+export async function countUploadRequestsByStatus(status) {
+  return (await db
     .prepare('SELECT COUNT(*) AS count FROM upload_requests WHERE status = ?')
-    .get(status).count
+    .get(status)).count
 }

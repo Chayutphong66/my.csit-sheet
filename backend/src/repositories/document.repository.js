@@ -1,4 +1,4 @@
-import { db } from '../data/database.js'
+import { db } from '../data/databaseClient.js'
 
 const publicDocuments = `
   SELECT 'Lecture' AS document_type, lectures.id, lectures.title,
@@ -89,9 +89,9 @@ function mapDocument(row) {
   }
 }
 
-function addHelpfulByViewer(documents, viewerId = '') {
+async function addHelpfulByViewer(documents, viewerId = '') {
   if (!viewerId || !documents.length) return documents.map((document) => ({ ...document, helpfulByMe: false }))
-  const votes = db.prepare(`
+  const votes = await db.prepare(`
     SELECT document_type, document_id FROM document_helpful_votes WHERE user_id = ?
   `).all(viewerId)
   const keys = new Set(votes.map((vote) => `${vote.document_type}:${vote.document_id}`))
@@ -101,8 +101,8 @@ function addHelpfulByViewer(documents, viewerId = '') {
   }))
 }
 
-export function listCourseSummaries(documentType = '') {
-  const rows = db.prepare(`
+export async function listCourseSummaries(documentType = '') {
+  const rows = (await db.prepare(`
     SELECT courses.id, courses.code, courses.name, courses.description,
            COUNT(documents.id) AS document_count
     FROM courses
@@ -110,71 +110,71 @@ export function listCourseSummaries(documentType = '') {
       ON documents.course_id = courses.id AND (? = '' OR documents.document_type = ?)
     GROUP BY courses.id, courses.code, courses.name, courses.description
     ORDER BY courses.code, courses.name
-  `).all(documentType, documentType).map((row) => ({
+  `).all(documentType, documentType)).map((row) => ({
     id: row.id, code: row.code, name: row.name, description: row.description,
     documentCount: Number(row.document_count)
   }))
   return documentType ? rows.filter((course) => course.documentCount > 0) : rows
 }
 
-export function findCourseSummary(id, documentType = '') {
-  return listCourseSummaries(documentType).find((course) => course.id === id) ?? null
+export async function findCourseSummary(id, documentType = '') {
+  return (await listCourseSummaries(documentType)).find((course) => course.id === id) ?? null
 }
 
-export function listCourseYears(courseId, documentType = '') {
-  return db.prepare(`
+export async function listCourseYears(courseId, documentType = '') {
+  return (await db.prepare(`
     SELECT academic_year, COUNT(*) AS document_count
     FROM (${publicDocuments})
     WHERE course_id = ? AND academic_year != '' AND (? = '' OR document_type = ?)
     GROUP BY academic_year
     ORDER BY CAST(academic_year AS INTEGER) DESC, academic_year DESC
-  `).all(courseId, documentType, documentType).map((row) => ({ academicYear: row.academic_year, documentCount: Number(row.document_count) }))
+  `).all(courseId, documentType, documentType)).map((row) => ({ academicYear: row.academic_year, documentCount: Number(row.document_count) }))
 }
 
-export function listCourseYearDocuments(courseId, academicYear, documentType = '', viewerId = '') {
-  const documents = db.prepare(`
+export async function listCourseYearDocuments(courseId, academicYear, documentType = '', viewerId = '') {
+  const documents = (await db.prepare(`
     SELECT * FROM (${publicDocuments})
     WHERE course_id = ? AND academic_year = ? AND semester != '' AND (? = '' OR document_type = ?)
     ORDER BY CAST(semester AS INTEGER), semester, created_at DESC
-  `).all(courseId, academicYear, documentType, documentType).map(mapDocument)
-  return addHelpfulByViewer(documents, viewerId)
+  `).all(courseId, academicYear, documentType, documentType)).map(mapDocument)
+  return await addHelpfulByViewer(documents, viewerId)
 }
 
-export function searchDocuments(query, documentType = '', viewerId = '') {
+export async function searchDocuments(query, documentType = '', viewerId = '') {
   const term = `%${String(query ?? '').trim().toLowerCase()}%`
-  const documents = db.prepare(`
+  const documents = (await db.prepare(`
     SELECT * FROM (${publicDocuments})
     WHERE (? = '' OR document_type = ?) AND (
       lower(title) LIKE ? OR lower(file_name) LIKE ? OR lower(course_code) LIKE ?
        OR lower(course_name) LIKE ? OR lower(description) LIKE ? OR lower(academic_year) LIKE ? OR lower(semester) LIKE ? OR lower(instructor) LIKE ?)
     ORDER BY created_at DESC LIMIT 100
-  `).all(documentType, documentType, term, term, term, term, term, term, term, term).map(mapDocument)
-  return addHelpfulByViewer(documents, viewerId)
+  `).all(documentType, documentType, term, term, term, term, term, term, term, term)).map(mapDocument)
+  return await addHelpfulByViewer(documents, viewerId)
 }
 
-export function findPublicDocument(type, id, viewerId = '') {
+export async function findPublicDocument(type, id, viewerId = '') {
   const normalized = String(type).toLowerCase()
   const documentType = normalized === 'lecture' ? 'Lecture' : normalized === 'sheet' ? 'Sheet' : ''
   if (!documentType) return null
-  const document = mapDocument(db.prepare(`SELECT * FROM (${publicDocuments}) WHERE document_type = ? AND id = ?`).get(documentType, id))
-  return document ? addHelpfulByViewer([document], viewerId)[0] : null
+  const document = mapDocument(await db.prepare(`SELECT * FROM (${publicDocuments}) WHERE document_type = ? AND id = ?`).get(documentType, id))
+  return document ? (await addHelpfulByViewer([document], viewerId))[0] : null
 }
 
-export function listPublicDocumentsByUploaderId(uploaderId, viewerId = '', limit = 12) {
-  const documents = db.prepare(`
+export async function listPublicDocumentsByUploaderId(uploaderId, viewerId = '', limit = 12) {
+  const documents = (await db.prepare(`
     SELECT * FROM (${publicDocuments})
     WHERE uploader_id = ?
     ORDER BY created_at DESC
     LIMIT ?
-  `).all(uploaderId, Math.min(Math.max(Number(limit) || 12, 1), 50)).map(mapDocument)
-  return addHelpfulByViewer(documents, viewerId)
+  `).all(uploaderId, Math.min(Math.max(Number(limit) || 12, 1), 50))).map(mapDocument)
+  return await addHelpfulByViewer(documents, viewerId)
 }
 
-export function listProfileDocuments(uploaderId, viewerId) {
-  return addHelpfulByViewer(db.prepare(`SELECT * FROM (${publicDocuments}) WHERE uploader_id = ? ORDER BY updated_at DESC`).all(uploaderId).map(mapDocument), viewerId)
+export async function listProfileDocuments(uploaderId, viewerId) {
+  return await addHelpfulByViewer((await db.prepare(`SELECT * FROM (${publicDocuments}) WHERE uploader_id = ? ORDER BY updated_at DESC`).all(uploaderId)).map(mapDocument), viewerId)
 }
 
-export function listStarredPublicDocuments(userId, viewerId) {
-  const rows = db.prepare(`SELECT documents.*, stars.created_at AS starred_at FROM (${publicDocuments}) documents JOIN document_stars stars ON stars.document_type = documents.document_type AND stars.document_id = documents.id WHERE stars.user_id = ? ORDER BY stars.created_at DESC`).all(userId)
-  return addHelpfulByViewer(rows.map(row => ({ ...mapDocument(row), starredAt: row.starred_at })), viewerId)
+export async function listStarredPublicDocuments(userId, viewerId) {
+  const rows = await db.prepare(`SELECT documents.*, stars.created_at AS starred_at FROM (${publicDocuments}) documents JOIN document_stars stars ON stars.document_type = documents.document_type AND stars.document_id = documents.id WHERE stars.user_id = ? ORDER BY stars.created_at DESC`).all(userId)
+  return await addHelpfulByViewer(rows.map(row => ({ ...mapDocument(row), starredAt: row.starred_at })), viewerId)
 }

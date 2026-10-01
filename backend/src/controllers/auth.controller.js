@@ -12,9 +12,9 @@ function refreshCookieOptions() {
   }
 }
 
-export function login(req, res, next) {
+export async function login(req, res, next) {
   try {
-    const data = authService.login(req.body)
+    const data = await authService.login(req.body)
     res.cookie('refreshToken', data.refreshToken, refreshCookieOptions())
     res.json({ user: data.user, accessToken: data.accessToken })
   } catch (error) {
@@ -22,16 +22,16 @@ export function login(req, res, next) {
   }
 }
 
-export function register(req, res, next) {
+export async function register(req, res, next) {
   try {
-    res.status(201).json(authService.register(req.body))
+    res.status(201).json(await authService.register(req.body))
   } catch (error) {
     next(error)
   }
 }
 
-export function refresh(req, res) {
-  const data = authService.refresh(req.cookies.refreshToken)
+export async function refresh(req, res) {
+  const data = await authService.refresh(req.cookies.refreshToken)
   if (!data) {
     res.status(401).json({ message: 'Session หมดอายุ กรุณาเข้าสู่ระบบใหม่' })
     return
@@ -40,8 +40,8 @@ export function refresh(req, res) {
   res.json({ user: data.user, accessToken: data.accessToken })
 }
 
-export function logout(req, res) {
-  authService.logout(req.cookies.refreshToken)
+export async function logout(req, res) {
+  await authService.logout(req.cookies.refreshToken)
   res.clearCookie('refreshToken', { path: '/api/auth' })
   res.status(204).end()
 }

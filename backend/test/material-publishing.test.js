@@ -782,28 +782,28 @@ test('exact duplicate reuses one FileAsset through rejection and cannot earn sco
   const user1Token = await login('user1')
   const user2Token = await login('user2')
   const contents = '%PDF-exact-storage-dedup-authoritative-bytes'
-  const beforeAssets = countFileAssets()
+  const beforeAssets = await countFileAssets()
   const first = await api('/upload-requests', { method: 'POST', token: user1Token,
     body: uploadPayload({ title: 'Stored Once Source', fileName: 'stored-once-a.pdf', contents, documentType: 'Sheet' }) })
-  assert.equal(countFileAssets(), beforeAssets + 1)
-  const afterUnique = countFileAssets()
+  assert.equal(await countFileAssets(), beforeAssets + 1)
+  const afterUnique = await countFileAssets()
   await approve(first.data.id, adminToken, 'Sheet')
   const scoreBeforeDuplicate = (await api('/upload-requests/contributions', { token: user2Token })).data.contributionScore
   const second = await api('/upload-requests', { method: 'POST', token: user2Token,
     body: uploadPayload({ title: 'Completely Renamed Copy', fileName: 'stored-once-b.pdf', contents, documentType: 'Sheet' }) })
   assert.equal(second.data.duplicateStatus, 'EXACT_DUPLICATE')
-  assert.equal(countFileAssets(), beforeAssets + 1)
-  const afterDuplicate = countFileAssets()
+  assert.equal(await countFileAssets(), beforeAssets + 1)
+  const afterDuplicate = await countFileAssets()
   assert.equal(db.prepare('SELECT file_asset_id FROM upload_requests WHERE id = ?').get(first.data.id).file_asset_id,
     db.prepare('SELECT file_asset_id FROM upload_requests WHERE id = ?').get(second.data.id).file_asset_id)
   const rejected = await api(`/admin/upload-requests/${second.data.id}/reject-duplicate`, { method: 'PATCH', token: adminToken, body: {} })
   assert.equal(rejected.data.rejectionType, 'DUPLICATE')
-  assert.equal(countFileAssets(), beforeAssets + 1)
+  assert.equal(await countFileAssets(), beforeAssets + 1)
   assert.equal((await api('/upload-requests/contributions', { token: user2Token })).data.contributionScore, scoreBeforeDuplicate)
-  context.diagnostic(`storage verification ${JSON.stringify({ beforeUpload: beforeAssets, afterUnique, afterExactDuplicate: afterDuplicate, afterRejectDuplicate: countFileAssets() })}`)
+  context.diagnostic(`storage verification ${JSON.stringify({ beforeUpload: beforeAssets, afterUnique, afterExactDuplicate: afterDuplicate, afterRejectDuplicate: await countFileAssets() })}`)
 })
 
-test('orphan cleanup preserves a shared referenced asset and removes only unreferenced assets', () => {
+test('orphan cleanup preserves a shared referenced asset and removes only unreferenced assets', async () => {
   const published = db.prepare(`
     SELECT upload_requests.id AS request_id, upload_requests.file_asset_id
     FROM upload_requests JOIN lecture_files ON lecture_files.file_asset_id = upload_requests.file_asset_id
@@ -815,16 +815,16 @@ test('orphan cleanup preserves a shared referenced asset and removes only unrefe
     /file asset is still referenced/
   )
   db.prepare('UPDATE upload_requests SET file_asset_id = NULL WHERE id = ?').run(published.request_id)
-  deleteOrphanFileAssets()
+  await deleteOrphanFileAssets()
   assert.ok(db.prepare('SELECT 1 FROM file_assets WHERE id = ?').get(published.file_asset_id))
 
   db.prepare(`
     INSERT INTO file_assets (id, binary_hash, original_filename, mime_type, file_size, file_data)
     VALUES ('orphan-test-asset', ?, 'orphan.pdf', 'application/pdf', 6, ?)
   `).run('f'.repeat(64), Buffer.from('%PDF-'))
-  const before = countFileAssets()
-  assert.equal(deleteOrphanFileAssets(), 1)
-  assert.equal(countFileAssets(), before - 1)
+  const before = await countFileAssets()
+  assert.equal(await deleteOrphanFileAssets(), 1)
+  assert.equal(await countFileAssets(), before - 1)
 })
 
 test('3-actor public contributor discovery is partial, clickable by username, and privacy-safe', async () => {

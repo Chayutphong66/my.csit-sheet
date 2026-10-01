@@ -57,3 +57,32 @@ export async function request(config) {
   const response = await apiClient(config)
   return response.status === 204 ? null : response.data
 }
+
+const INLINE_FILE_BYTES = 2 * 1024 * 1024
+const CHUNK_BYTES = 2 * 1024 * 1024
+const CHUNK_BASE64_CHARACTERS = Math.floor(CHUNK_BYTES / 3) * 4
+
+export async function requestWithChunkedFile(config) {
+  const data = config.data || {}
+  const base64 = String(data.fileData || '').replace(/^data:[^;]*;base64,/, '')
+  const estimatedBytes = Number(data.fileSize) || Math.floor(base64.length * 3 / 4)
+  if (!base64 || estimatedBytes <= INLINE_FILE_BYTES) return request(config)
+
+  if (!data.uploadSessionId) {
+    const totalChunks = Math.ceil(base64.length / CHUNK_BASE64_CHARACTERS)
+    const session = await request({
+      url: '/upload-sessions', method: 'POST',
+      data: { fileName: data.fileName, fileType: data.fileType, fileSize: estimatedBytes, totalChunks }
+    })
+    for (let index = 0; index < totalChunks; index += 1) {
+      await request({
+        url: `/upload-sessions/${encodeURIComponent(session.id)}/chunks/${index}`,
+        method: 'PUT',
+        data: { data: base64.slice(index * CHUNK_BASE64_CHARACTERS, (index + 1) * CHUNK_BASE64_CHARACTERS) }
+      })
+    }
+    data.uploadSessionId = session.id
+  }
+  const { fileData: _fileData, ...stagedData } = data
+  return request({ ...config, data: stagedData })
+}

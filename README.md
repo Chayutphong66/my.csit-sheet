@@ -2,7 +2,7 @@
 
 CSIT Sheet is a Thai-first Vue 3 and Express academic knowledge-sharing platform. The user navigation is หน้าหลัก, เอกสารการสอน, ชีทสรุป, อัปโหลด, and โปรไฟล์. Authenticated users browse Course → Academic Year → Semester, search documents and contributors from one place, open privacy-safe public profiles, preview/download documents, submit material, track requests, and see contributor impact. Public cards show clickable contributor identity, qualified Views/Downloads, and Helpful feedback. Admins work from an action-needed dashboard and focused approval workspace with exact/content/possible duplicate evidence.
 
-SQLite stores one canonical `file_assets` BLOB per server-calculated SHA-256. Upload requests and public Lecture/Sheet file records use safe references to that asset.
+Local development uses SQLite. Production uses Netlify Database for relational records and site-wide Netlify Blobs for one canonical object per server-calculated SHA-256; upload requests and public Lecture/Sheet file records keep safe references to that object.
 
 Upload metadata uses controlled CS/IT programs, Buddhist Era periods, synchronized Course Code/Name autocomplete, verified multi-select teachers, and an optional 1,000-character description. Course autocomplete is ranked locally and filtered by Program + year + semester; the Upload page never calls Reg8 or an AI service. Admins can approve a teacher suggestion globally, approve it only for one document, or reject it independently from document moderation.
 
@@ -48,7 +48,6 @@ npm run test:frontend
 npm run test:visual        # isolated HTTPS/Edge screenshots + keyboard/CSP checks (after build)
 npm run lint
 npm run build
-npm run start:production  # backup/bootstrap persistent DB, then serve API and built SPA
 ```
 
 ## Contributor rules
@@ -76,7 +75,7 @@ The server calculates binary SHA-256 and compares both PENDING requests and APPR
 - `CONTENT_DUPLICATE`: binary differs but a high-confidence content hash matches.
 - `POSSIBLE_DUPLICATE`: Course/year/semester/type/normalized title match only; admin must decide.
 
-Canonical bytes live once in `file_assets`; requests and public file rows keep references. Publication is transactional and does not copy the BLOB. A database trigger blocks deletion of referenced assets, and `db:cleanup-files` removes only zero-reference rows.
+Canonical bytes live once in SQLite `file_assets` during local development and once in a site-wide Netlify Blob store in production. Relational rows keep references, publication does not copy bytes, and cleanup removes only zero-reference assets.
 
 The upload form performs the same duplicate checks as a read-only preflight. Exact matches are stopped before a request is created; metadata/content matches show the existing canonical document and let the user open it, submit a revision, or explicitly continue with a new document.
 
@@ -90,34 +89,25 @@ Approved non-initial revisions award the same 20 contribution points as an accep
 
 ## Production deployment
 
-```bash
-npm ci
-npm run build
-NODE_ENV=production DATABASE_PATH=/absolute/persistent/csit-sheet.sqlite JWT_SECRET=<secret> npm run start:production
-```
-
-When `NODE_ENV=production`, Express serves `frontend/dist` and binds to `0.0.0.0` by default. Production startup requires an absolute persistent database path, creates a one-generation pre-deploy backup, applies migrations, and imports only missing tracked registrar workbook versions. It never inserts demo accounts.
-
-The supported deployment is a single Render web service with a persistent disk, defined in `render.yaml`. See [DEPLOYMENT.md](DEPLOYMENT.md) for the Blueprint, environment, verification, persistence test, and rollback runbook.
+The supported deployment is one Netlify site configured by `netlify.toml`: Vue is published from `frontend/dist`, Express runs as a Netlify Function, relational data uses Netlify Database, and file bytes use site-wide Netlify Blobs. See [DEPLOYMENT.md](DEPLOYMENT.md) for the environment, first-admin bootstrap, verification, Free-plan guardrail, and rollback runbook.
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `NODE_ENV` | yes | Set to `production`. |
 | `JWT_SECRET` | yes | Long random signing secret; never commit it. |
-| `DATABASE_PATH` | yes | Absolute path on persistent writable storage. |
-| `ALLOWED_ORIGINS` | when frontend is separate | Comma-separated HTTPS frontend origins. |
-| `PORT` | platform-dependent | HTTP port, default `8080`. |
-| `HOST` | no | Bind host; production default is `0.0.0.0`. |
+| `BOOTSTRAP_ADMIN_EMAIL` | temporarily | Matching registration creates the first admin; remove afterward. |
+| `NETLIFY_DB_URL` | platform managed | Injected by Netlify Database; never expose or commit it. |
+| `ALLOWED_ORIGINS` | no | Extra HTTPS origins; Netlify origins are automatic. |
 | `ACCESS_TOKEN_TTL` | no | Access JWT duration, default `15m`. |
 | `REFRESH_TOKEN_TTL_DAYS` | no | Refresh session duration, default `7`. |
 | `VITE_API_URL` | when frontend is separate | API base URL at frontend build time. |
 
-`GET /api/health` checks SQLite and returns `{ "status": "ok", "database": "ready" }`.
+`GET /api/health` checks the active database and returns `{ "status": "ok", "database": "ready" }`.
 
-Never run `db:seed` in production; it is exclusively for local demo data. The two reference workbooks are stored in `backend/data/registrar/` and production bootstrap imports each workbook hash once.
+Never run `db:seed` in production; it is exclusively for local demo data. Import registrar workbooks through the Admin preview/confirm workflow after the first deployment.
 
 ## Security and limits
 
 Passwords use salted scrypt hashes. JWT/rotated hashed refresh tokens, role and ownership checks, Helmet, restricted CORS, login throttling, prepared SQL, MIME/signature/size/filename validation, `nosniff`, and production-safe errors remain enabled. Pending/rejected files are never public interaction targets.
 
-The 20 MB policy buffers files in memory, and SQLite BLOB storage is appropriate only for the current project scale. Reassess streaming/object storage before increasing upload size or scaling horizontally. Full admin material deletion is not currently included.
+The 20 MB policy is preserved with authenticated 2 MB upload chunks so requests stay below Netlify Function's buffered request limit. Production file bytes are stored in site-wide Blobs. Full admin material deletion is not currently included.

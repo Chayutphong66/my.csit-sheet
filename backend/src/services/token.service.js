@@ -47,11 +47,11 @@ export function createAccessToken(user) {
   )
 }
 
-export function createRefreshToken(user) {
-  revokeExpiredRefreshSessions()
+export async function createRefreshToken(user) {
+  await revokeExpiredRefreshSessions()
 
   const token = crypto.randomBytes(64).toString('base64url')
-  createRefreshSession({
+  await createRefreshSession({
     id: crypto.randomUUID(),
     userId: user.id,
     tokenHash: hashToken(token),
@@ -60,26 +60,26 @@ export function createRefreshToken(user) {
   return token
 }
 
-export function consumeRefreshToken(token) {
+export async function consumeRefreshToken(token) {
   if (!token || typeof token !== 'string') return null
 
   const tokenHash = hashToken(token)
-  const session = findRefreshSessionByHash(tokenHash)
+  const session = await findRefreshSessionByHash(tokenHash)
   if (!session || session.revokedAt || isExpired(session.expiresAt)) {
-    if (session && !session.revokedAt) revokeRefreshSessionByHash(tokenHash)
+    if (session && !session.revokedAt) await revokeRefreshSessionByHash(tokenHash)
     return null
   }
 
-  revokeRefreshSessionByHash(tokenHash)
+  await revokeRefreshSessionByHash(tokenHash)
   return {
     userId: session.userId,
-    refreshToken: createRefreshToken({ id: session.userId })
+    refreshToken: await createRefreshToken({ id: session.userId })
   }
 }
 
-export function revokeRefreshToken(token) {
+export async function revokeRefreshToken(token) {
   if (!token || typeof token !== 'string') return
-  revokeRefreshSessionByHash(hashToken(token))
+  await revokeRefreshSessionByHash(hashToken(token))
 }
 
 export function parseAccessToken(token) {

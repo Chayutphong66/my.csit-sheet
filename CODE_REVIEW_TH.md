@@ -182,6 +182,6 @@ Visual QA ต้องมี installed Chromium/Edge และ OpenSSL; host อ
 
 พร้อม Deploy แต่ต้องตั้งค่าเพิ่มเติม
 
-โค้ด/build/migrations/integrity/privacy/regression/production dependency audit/browser lifecycle/visual checks ผ่านแล้ว ก่อน deploy จริงให้ใช้ HTTPS, ตั้ง NODE_ENV=production, JWT_SECRET แบบสุ่ม, persistent DATABASE_PATH และ ALLOWED_ORIGINS ของ frontend รวม origin ของตนเอง สำรอง SQLite เดิมและรัน migration ก่อน startup ตาม deployment topology ที่ใช้ ห้าม seed production
+อัปเดตการ deploy วันที่ 2026-10-02: production ใช้ Netlify-only ตาม `DEPLOYMENT.md` โดยใช้ Netlify Database, site-wide Netlify Blobs และ Netlify Functions ไม่ใช้ `DATABASE_PATH`, persistent SQLite disk หรือ Render อีกต่อไป ต้องตั้ง `JWT_SECRET` ใน Netlify และห้าม commit credentials
 
 ไม่มีการ deploy/publish หรือแก้ข้อมูลจริงในงานนี้

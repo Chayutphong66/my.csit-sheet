@@ -11,7 +11,7 @@ const { db } = await import('../src/data/database.js')
 const { findContributorByUsername, searchContributors } = await import('../src/repositories/contributor.repository.js')
 test.after(() => db.close())
 
-test('public contributor aggregates reconcile multiple documents, downloads and Helpful without row multiplication', () => {
+test('public contributor aggregates reconcile multiple documents, downloads and Helpful without row multiplication', async () => {
   const user = db.prepare("INSERT INTO users (id, username, email, password, role) VALUES (?, ?, ?, '', 'USER')")
   for (const name of ['owner', 'reader1', 'reader2', 'reader3']) user.run(name, name, `${name}@example.test`)
   for (const id of ['sheet1', 'sheet2']) {
@@ -24,15 +24,15 @@ test('public contributor aggregates reconcile multiple documents, downloads and 
       db.prepare("INSERT INTO document_helpful_votes (document_type, document_id, user_id) VALUES ('Sheet', ?, ?)").run(id, reader)
     }
   }
-  const profile = findContributorByUsername('owner')
+  const profile = await findContributorByUsername('owner')
   assert.equal(profile.publishedCount, 2)
   assert.equal(profile.totalViews, 20)
   assert.equal(profile.totalDownloads, 10)
   assert.equal(profile.helpful, 6)
   assert.equal(profile.contributionScore, 2 * 20 + 4 * 2 + 6 * 5)
-  assert.deepEqual(searchContributors('OWN')[0], profile)
+  assert.deepEqual((await searchContributors('OWN'))[0], profile)
   // Legacy self-interactions must never become qualified public rewards.
   db.prepare("INSERT INTO document_interactions (document_type, document_id, user_id, interaction_type) VALUES ('Sheet', 'sheet1', 'owner', 'DOWNLOAD')").run()
   db.prepare("INSERT INTO document_helpful_votes (document_type, document_id, user_id) VALUES ('Sheet', 'sheet1', 'owner')").run()
-  assert.equal(findContributorByUsername('owner').contributionScore, profile.contributionScore)
+  assert.equal((await findContributorByUsername('owner')).contributionScore, profile.contributionScore)
 })

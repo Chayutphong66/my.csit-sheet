@@ -14,13 +14,13 @@ function publicLecture(lecture) {
   return { ...safeLecture, documentType: 'Lecture', hasFile: Boolean(lecture.hasFile) }
 }
 
-export function getAllLectures(_req, res) {
-  res.json(findApprovedLectures().map(publicLecture))
+export async function getAllLectures(_req, res) {
+  res.json((await findApprovedLectures()).map(publicLecture))
 }
 
-export function getLecture(req, res, next) {
+export async function getLecture(req, res, next) {
   try {
-    const lecture = findLectureById(req.params.id)
+    const lecture = await findLectureById(req.params.id)
     if (!lecture) {
       const error = new Error('Lecture not found')
       error.status = 404
@@ -34,24 +34,24 @@ export function getLecture(req, res, next) {
 
 // Public download for an approved lecture. Published bytes live in lecture_files, so any
 // authenticated user can download an approved lecture without accessing the private request.
-export function getLectureFile(req, res, next) {
+export async function getLectureFile(req, res, next) {
   try {
-    const lecture = findLectureById(req.params.id)
+    const lecture = await findLectureById(req.params.id)
     if (!lecture || lecture.status !== 'APPROVED') {
       const error = new Error('Lecture not found')
       error.status = 404
       throw error
     }
 
-    const currentVersion = findCurrentDocumentVersion('Lecture', lecture.id)
-    const file = currentVersion ? findVersionFile(currentVersion.id) : findLectureFileByLectureId(lecture.id)
+    const currentVersion = await findCurrentDocumentVersion('Lecture', lecture.id)
+    const file = currentVersion ? await findVersionFile(currentVersion.id) : await findLectureFileByLectureId(lecture.id)
     if (!file || !file.fileData) {
       const error = new Error('No file is stored for this lecture')
       error.status = 404
       throw error
     }
 
-    recordDocumentInteraction({
+    await recordDocumentInteraction({
       userId: req.user.id,
       document: { id: lecture.id, documentType: 'Lecture', uploaderId: lecture.uploaderId },
       interactionType: 'DOWNLOAD'

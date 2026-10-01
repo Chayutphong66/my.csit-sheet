@@ -1,4 +1,4 @@
-import { db } from '../data/database.js'
+import { db } from '../data/databaseClient.js'
 import { calculateContributionScore, contributionBadges, contributorLevel } from '../services/contributionScore.service.js'
 
 const contributorAggregate = `
@@ -92,9 +92,9 @@ function mapContributor(row) {
   }
 }
 
-export function searchContributors(query, limit = 20) {
+export async function searchContributors(query, limit = 20) {
   const term = `%${String(query ?? '').trim().toLowerCase()}%`
-  return db.prepare(`
+  return (await db.prepare(`
     ${contributorAggregate}
     WHERE users.role = 'USER' AND (
       lower(users.username) LIKE ? OR lower(COALESCE(NULLIF(users.display_name, ''), users.username)) LIKE ?
@@ -102,11 +102,11 @@ export function searchContributors(query, limit = 20) {
     GROUP BY users.id, users.username, users.display_name, users.avatar_url, users.program_code, users.cohort
     ORDER BY published_count DESC, users.username
     LIMIT ?
-  `).all(term, term, Math.min(Math.max(Number(limit) || 20, 1), 20)).map(mapContributor)
+  `).all(term, term, Math.min(Math.max(Number(limit) || 20, 1), 20))).map(mapContributor)
 }
 
-export function findContributorByUsername(username) {
-  return mapContributor(db.prepare(`
+export async function findContributorByUsername(username) {
+  return mapContributor(await db.prepare(`
     ${contributorAggregate}
     WHERE users.role = 'USER' AND lower(users.username) = lower(?)
     GROUP BY users.id, users.username, users.display_name, users.avatar_url, users.program_code, users.cohort

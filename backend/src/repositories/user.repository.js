@@ -1,4 +1,4 @@
-import { db } from '../data/database.js'
+import { db } from '../data/databaseClient.js'
 
 function toUser(row) {
   if (!row) return null
@@ -17,19 +17,19 @@ function toUser(row) {
   }
 }
 
-export function findUserByEmailOrUsername(usernameOrEmail) {
-  const row = db
+export async function findUserByEmailOrUsername(usernameOrEmail) {
+  const row = await db
     .prepare('SELECT * FROM users WHERE email = ? OR username = ?')
     .get(usernameOrEmail, usernameOrEmail)
   return toUser(row)
 }
 
-export function findUserById(id) {
-  return toUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id))
+export async function findUserById(id) {
+  return toUser(await db.prepare('SELECT * FROM users WHERE id = ?').get(id))
 }
 
-export function createUser(user) {
-  db.prepare(`
+export async function createUser(user) {
+  await db.prepare(`
     INSERT INTO users (id, username, display_name, email, password, role, avatar_url, is_verified, provider, program_code, cohort)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -46,20 +46,24 @@ export function createUser(user) {
     user.cohort ?? ''
   )
 
-  return findUserById(user.id)
+  return await findUserById(user.id)
 }
 
-export function updateUserPassword(id, password) {
-  db.prepare('UPDATE users SET password = ? WHERE id = ?').run(password, id)
-  return findUserById(id)
+export async function updateUserPassword(id, password) {
+  await db.prepare('UPDATE users SET password = ? WHERE id = ?').run(password, id)
+  return await findUserById(id)
 }
 
-export function countUsers() {
-  return db.prepare('SELECT COUNT(*) AS count FROM users').get().count
+export async function countUsers() {
+  return (await db.prepare('SELECT COUNT(*) AS count FROM users').get()).count
 }
 
-export function listUsers() {
-  return db
+export async function countAdmins() {
+  return Number((await db.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'ADMIN'").get()).count)
+}
+
+export async function listUsers() {
+  return await db
     .prepare('SELECT id, username, display_name AS displayName, email, role, program_code AS program, cohort FROM users ORDER BY username')
     .all()
 }

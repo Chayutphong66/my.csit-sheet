@@ -1,8 +1,8 @@
-import { db } from '../data/database.js'
+import { db } from '../data/databaseClient.js'
 
-function toSheet(row) {
+async function toSheet(row) {
   if (!row) return null
-  const teachers = db.prepare(`SELECT display_name name FROM document_teachers WHERE document_type='Sheet' AND document_id=? ORDER BY display_name`).all(row.id)
+  const teachers = await db.prepare(`SELECT display_name name FROM document_teachers WHERE document_type='Sheet' AND document_id=? ORDER BY display_name`).all(row.id)
   return {
     id: row.id,
     title: row.title,
@@ -69,66 +69,62 @@ const sheetSelect = `
   LEFT JOIN sheet_files ON sheet_files.sheet_id = sheets.id
 `
 
-export function findSheetsByUploaderId(uploaderId) {
-  return db
+export async function findSheetsByUploaderId(uploaderId) {
+  return Promise.all((await db
     .prepare(`${sheetSelect} WHERE sheets.uploader_id = ? ORDER BY sheets.created_at DESC`)
-    .all(uploaderId)
-    .map(toSheet)
+    .all(uploaderId)).map(toSheet))
 }
 
-export function findRecommendedSheets({ limit = 6, excludeUploaderId = null } = {}) {
+export async function findRecommendedSheets({ limit = 6, excludeUploaderId = null } = {}) {
   const where = excludeUploaderId
     ? `WHERE sheets.status = 'APPROVED' AND sheets.uploader_id != ?`
     : `WHERE sheets.status = 'APPROVED'`
 
   const params = excludeUploaderId ? [excludeUploaderId, limit] : [limit]
 
-  return db
+  return Promise.all((await db
     .prepare(
       `${sheetSelect} ${where} ORDER BY sheets.download_count DESC, sheets.created_at DESC LIMIT ?`
     )
-    .all(...params)
-    .map(toSheet)
+    .all(...params)).map(toSheet))
 }
 
-export function findAllSheets() {
-  return db.prepare(`${sheetSelect} ORDER BY sheets.created_at DESC`).all().map(toSheet)
+export async function findAllSheets() {
+  return Promise.all((await db.prepare(`${sheetSelect} ORDER BY sheets.created_at DESC`).all()).map(toSheet))
 }
 
-export function findSheetById(id) {
-  return toSheet(db.prepare(`${sheetSelect} WHERE sheets.id = ?`).get(id))
+export async function findSheetById(id) {
+  return toSheet(await db.prepare(`${sheetSelect} WHERE sheets.id = ?`).get(id))
 }
 
-export function incrementSheetDownloadCount(id) {
-  db.prepare('UPDATE sheets SET download_count = download_count + 1 WHERE id = ?').run(id)
+export async function incrementSheetDownloadCount(id) {
+  await db.prepare('UPDATE sheets SET download_count = download_count + 1 WHERE id = ?').run(id)
 }
 
-export function findApprovedSheets() {
-  return db
+export async function findApprovedSheets() {
+  return Promise.all((await db
     .prepare(`${sheetSelect} WHERE sheets.status = 'APPROVED' ORDER BY sheets.created_at DESC`)
-    .all()
-    .map(toSheet)
+    .all()).map(toSheet))
 }
 
-export function findPendingSheets() {
-  return db
+export async function findPendingSheets() {
+  return Promise.all((await db
     .prepare(`${sheetSelect} WHERE sheets.status = 'PENDING' ORDER BY sheets.created_at DESC`)
-    .all()
-    .map(toSheet)
+    .all()).map(toSheet))
 }
 
-export function updateSheetStatus(id, status, rejectReason = '') {
-  const result = db
+export async function updateSheetStatus(id, status, rejectReason = '') {
+  const result = await db
     .prepare('UPDATE sheets SET status = ?, reject_reason = ? WHERE id = ?')
     .run(status, rejectReason, id)
 
   return result.changes > 0
 }
 
-export function countSheets() {
-  return db.prepare('SELECT COUNT(*) AS count FROM sheets').get().count
+export async function countSheets() {
+  return (await db.prepare('SELECT COUNT(*) AS count FROM sheets').get()).count
 }
 
-export function countSheetsByStatus(status) {
-  return db.prepare('SELECT COUNT(*) AS count FROM sheets WHERE status = ?').get(status).count
+export async function countSheetsByStatus(status) {
+  return (await db.prepare('SELECT COUNT(*) AS count FROM sheets WHERE status = ?').get(status)).count
 }

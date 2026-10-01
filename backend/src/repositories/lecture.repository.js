@@ -1,9 +1,9 @@
 import crypto from 'node:crypto'
-import { db } from '../data/database.js'
+import { db } from '../data/databaseClient.js'
 
-function toLecture(row) {
+async function toLecture(row) {
   if (!row) return null
-  const teachers = db.prepare(`SELECT display_name name FROM document_teachers WHERE document_type='Lecture' AND document_id=? ORDER BY display_name`).all(row.id)
+  const teachers = await db.prepare(`SELECT display_name name FROM document_teachers WHERE document_type='Lecture' AND document_id=? ORDER BY display_name`).all(row.id)
   return {
     id: row.id,
     title: row.title,
@@ -65,22 +65,21 @@ const lectureSelect = `
   LEFT JOIN lecture_files ON lecture_files.lecture_id = lectures.id
 `
 
-export function findAllLectures() {
-  return db.prepare(`${lectureSelect} ORDER BY lectures.created_at DESC`).all().map(toLecture)
+export async function findAllLectures() {
+  return Promise.all((await db.prepare(`${lectureSelect} ORDER BY lectures.created_at DESC`).all()).map(toLecture))
 }
 
-export function findApprovedLectures() {
-  return db
+export async function findApprovedLectures() {
+  return Promise.all((await db
     .prepare(`${lectureSelect} WHERE lectures.status = 'APPROVED' ORDER BY lectures.created_at DESC`)
-    .all()
-    .map(toLecture)
+    .all()).map(toLecture))
 }
 
-export function findLectureById(id) {
-  return toLecture(db.prepare(`${lectureSelect} WHERE lectures.id = ?`).get(id))
+export async function findLectureById(id) {
+  return toLecture(await db.prepare(`${lectureSelect} WHERE lectures.id = ?`).get(id))
 }
 
-export function createLecture({
+export async function createLecture({
   title,
   subject,
   instructor = '',
@@ -95,7 +94,7 @@ export function createLecture({
   sourceRequestId = null
 }) {
   const id = crypto.randomUUID()
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO lectures (
       id, title, subject, instructor, description, academic_year,
       status, uploader_id, download_count, file_name, source_request_id, course_id,
@@ -104,17 +103,17 @@ export function createLecture({
     VALUES (?, ?, ?, ?, ?, ?, 'APPROVED', ?, 0, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `).run(id, title, subject, instructor, description, academicYear, uploaderId, fileName, sourceRequestId,
     courseId, semester, String(title).trim().toLowerCase().replace(/\s+/g, ' '), fileHash, contentHash)
-  return findLectureById(id)
+  return await findLectureById(id)
 }
 
-export function incrementLectureDownloadCount(id) {
-  db.prepare('UPDATE lectures SET download_count = download_count + 1 WHERE id = ?').run(id)
+export async function incrementLectureDownloadCount(id) {
+  await db.prepare('UPDATE lectures SET download_count = download_count + 1 WHERE id = ?').run(id)
 }
 
-export function countLectures() {
-  return db.prepare('SELECT COUNT(*) AS count FROM lectures').get().count
+export async function countLectures() {
+  return (await db.prepare('SELECT COUNT(*) AS count FROM lectures').get()).count
 }
 
-export function countLecturesByStatus(status) {
-  return db.prepare('SELECT COUNT(*) AS count FROM lectures WHERE status = ?').get(status).count
+export async function countLecturesByStatus(status) {
+  return (await db.prepare('SELECT COUNT(*) AS count FROM lectures WHERE status = ?').get(status)).count
 }

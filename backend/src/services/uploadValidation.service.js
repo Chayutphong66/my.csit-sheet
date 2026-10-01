@@ -49,7 +49,7 @@ export function validateFileMetadata(body) {
   return { fileName, fileType }
 }
 
-export function validateUploadPayload(body) {
+export async function validateUploadPayload(body) {
   const title = String(body?.title ?? '').trim()
   if (!title || title.length > 200) {
     throw validationError('Document title is required and must be at most 200 characters')
@@ -58,14 +58,14 @@ export function validateUploadPayload(body) {
 
   const documentType = normalizeDocumentType(body.documentType)
   if (!documentType) throw validationError('Document type must be Lecture or Sheet')
-  const course = findCourseById(String(body.courseId ?? '').trim())
+  const course = await findCourseById(String(body.courseId ?? '').trim())
   if (!course) throw validationError('A valid course is required')
   const academicYear = validateAcademicYear(body.academicYear)
   const semester = validateSemester(body.semester)
   const programInput = String(body.programId ?? body.program ?? '').trim()
-  const program = programInput ? findProgram(programInput) : inferProgramForCourse(course.id)
+  const program = programInput ? await findProgram(programInput) : await inferProgramForCourse(course.id)
   if (programInput && !program) throw validationError('A valid program is required')
-  const validContext = program ? courseValidForContext(course.id, program.id, academicYear, semester) : courseOfferedInPeriod(course.id, academicYear, semester)
+  const validContext = program ? await courseValidForContext(course.id, program.id, academicYear, semester) : await courseOfferedInPeriod(course.id, academicYear, semester)
   if (!validContext) throw validationError('Selected course is not offered for this program, academic year, and semester')
   const description = String(body.description ?? '').trim()
   if (description.length > 1000 || /\0/.test(description)) throw validationError('Description must be at most 1000 characters')
@@ -74,8 +74,8 @@ export function validateUploadPayload(body) {
   const instructorIds = [...new Set(submittedTeacherIds.map(id => id.trim()).filter(Boolean))]
   let courseOfferingId = null
   for (const instructorId of instructorIds) {
-    const instructor = findTeacher(instructorId)
-    const offering = instructor?.active && findOfferingForTeacher(course.id, academicYear, semester, instructorId, program?.id || '')
+    const instructor = await findTeacher(instructorId)
+    const offering = instructor?.active && await findOfferingForTeacher(course.id, academicYear, semester, instructorId, program?.id || '')
     if (!offering) throw validationError('Selected teacher is not assigned to this course, academic year, and semester')
     courseOfferingId ||= offering.id
   }

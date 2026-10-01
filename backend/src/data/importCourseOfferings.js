@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import readXlsxFile, { readSheetNames } from 'read-excel-file/node'
-import { db } from './database.js'
+import { db, withTransaction } from './databaseClient.js'
 import { normalizeTeacherName } from '../repositories/academic.repository.js'
 
 const PERIOD_SHEET = /^(25\d{2})[_-]([123])$/
@@ -83,14 +83,14 @@ export async function parseCourseWorkbook(source, programCode) {
   return { program: String(programCode).toUpperCase(), records: [...unique.values()], errors, duplicateRows, ignoredSheets, sheetCount: sheetNames.length - ignoredSheets.length }
 }
 
-function programFor(database, programCode) {
-  const program = database.prepare('SELECT id,code,name_en nameEn FROM programs WHERE code=?').get(String(programCode).toUpperCase())
+async function programFor(database, programCode) {
+  const program = await database.prepare('SELECT id,code,name_en nameEn FROM programs WHERE code=?').get(String(programCode).toUpperCase())
   if (!program) throw new Error(`Unknown program: ${programCode}`)
   return program
 }
 
-function buildPreview(parsed, database) {
-  const program = programFor(database, parsed.program)
+async function buildPreview(parsed, database) {
+  const program = await programFor(database, parsed.program)
   const courseByCode = database.prepare('SELECT id,name,name_en,credits FROM courses WHERE code=?')
   const offeringByKey = database.prepare('SELECT id FROM course_offerings WHERE course_id=? AND academic_year=? AND semester=? AND section=?')
   const teacherByName = database.prepare('SELECT id FROM instructors WHERE normalized_name=?')
@@ -98,16 +98,16 @@ function buildPreview(parsed, database) {
   const newCourses = new Set(), updatedCourses = new Set(), newTeachers = new Set()
   let newOfferings = 0, newTeacherAssignments = 0, existingRows = 0
   for (const record of parsed.records) {
-    const course = courseByCode.get(record.code)
+    const course = await courseByCode.get(record.code)
     if (!course) newCourses.add(record.code)
     else if (clean(course.name_en || course.name) !== record.name || (record.credits !== null && course.credits !== record.credits)) updatedCourses.add(record.code)
-    const offering = course && offeringByKey.get(course.id, record.academicYear, record.semester, record.section)
+    const offering = course && await offeringByKey.get(course.id, record.academicYear, record.semester, record.section)
     if (!offering) newOfferings++; else existingRows++
     for (const teacherName of record.teachers) {
       const normalized = normalizeTeacherName(teacherName)
-      const teacher = teacherByName.get(normalized)
+      const teacher = await teacherByName.get(normalized)
       if (!teacher) { newTeachers.add(normalized); newTeacherAssignments++ }
-      else if (!offering || !assignmentExists.get(offering.id, teacher.id)) newTeacherAssignments++
+      else if (!offering || !await assignmentExists.get(offering.id, teacher.id)) newTeacherAssignments++
     }
   }
   return {
@@ -121,19 +121,19 @@ function buildPreview(parsed, database) {
 }
 
 export async function previewCourseWorkbook(source, programCode, database = db) {
-  return buildPreview(await parseCourseWorkbook(source, programCode), database)
+  return await buildPreview(await parseCourseWorkbook(source, programCode), database)
 }
 
-function historyRow(database, id) {
-  return database.prepare(`SELECT ci.id,ci.file_name fileName,ci.file_hash fileHash,p.code program,
+async function historyRow(database, id) {
+  return await database.prepare(`SELECT ci.id,ci.file_name fileName,ci.file_hash fileHash,p.code program,
     ci.imported_by_user_id importedByUserId,u.username importedByUsername,ci.imported_rows importedRows,
     ci.skipped_rows skippedRows,ci.error_rows errorRows,ci.status,ci.summary_json summaryJson,
     ci.error_message errorMessage,ci.imported_at importedAt FROM course_imports ci
     JOIN programs p ON p.id=ci.program_id LEFT JOIN users u ON u.id=ci.imported_by_user_id WHERE ci.id=?`).get(id)
 }
 
-export function listCourseImports(database = db) {
-  return database.prepare(`SELECT ci.id,ci.file_name fileName,p.code program,u.username importedByUsername,
+export async function listCourseImports(database = db) {
+  return await database.prepare(`SELECT ci.id,ci.file_name fileName,p.code program,u.username importedByUsername,
     ci.imported_rows importedRows,ci.skipped_rows skippedRows,ci.error_rows errorRows,ci.status,
     ci.error_message errorMessage,ci.imported_at importedAt FROM course_imports ci JOIN programs p ON p.id=ci.program_id
     LEFT JOIN users u ON u.id=ci.imported_by_user_id ORDER BY ci.imported_at DESC,ci.id DESC LIMIT 100`).all()
@@ -141,9 +141,9 @@ export function listCourseImports(database = db) {
 
 export async function importCourseWorkbook(source, programCode, database = db, options = {}) {
   if (typeof source === 'string' && !existsSync(source)) throw new Error(`Course data file not found: ${source}`)
-  const program = programFor(database, programCode)
+  const program = await programFor(database, programCode)
   const parsed = await parseCourseWorkbook(source, program.code)
-  const preview = buildPreview(parsed, database)
+  const preview = await buildPreview(parsed, database)
   if (parsed.records.length === 0) throw new Error('No valid course offering rows were found in the workbook')
   const fileName = clean(options.fileName || (typeof source === 'string' ? path.basename(source) : 'course-import.xlsx'))
   const fileHash = crypto.createHash('sha256').update(sourceBuffer(source)).digest('hex')
@@ -162,41 +162,46 @@ export async function importCourseWorkbook(source, programCode, database = db, o
   const mapTeacher = database.prepare('INSERT OR IGNORE INTO course_offering_teachers(offering_id,teacher_id) VALUES(?,?)')
   const currentAssignments = database.prepare('SELECT teacher_id FROM course_offering_teachers WHERE offering_id=?')
   const removeAssignment = database.prepare('DELETE FROM course_offering_teachers WHERE offering_id=? AND teacher_id=?')
-  database.exec('BEGIN')
-  try {
+  const importRows = async () => {
     for (const record of parsed.records) {
-      let course = findCourse.get(record.code)
-      if (!course) { course = { id: crypto.randomUUID() }; insertCourse.run(course.id, record.name, record.code, record.name, '', record.credits, record.name); stats.createdCourses++ }
-      else if (clean(course.name_en || course.name) !== record.name || (record.credits !== null && course.credits !== record.credits)) { updateCourse.run(record.name, record.name, record.credits, record.name, course.id); stats.updatedCourses++ }
-      mapCourse.run(program.id, course.id)
-      let offering = findOffering.get(course.id, record.academicYear, record.semester, record.section)
-      if (!offering) { offering = { id: crypto.randomUUID() }; insertOffering.run(offering.id, course.id, record.academicYear, record.semester, record.section, record.code, record.name); stats.createdCourseOfferings++ }
-      else updateOffering.run(record.code, record.name, offering.id)
-      mapOffering.run(offering.id, program.id)
+      let course = await findCourse.get(record.code)
+      if (!course) { course = { id: crypto.randomUUID() }; await insertCourse.run(course.id, record.name, record.code, record.name, '', record.credits, record.name); stats.createdCourses++ }
+      else if (clean(course.name_en || course.name) !== record.name || (record.credits !== null && course.credits !== record.credits)) { await updateCourse.run(record.name, record.name, record.credits, record.name, course.id); stats.updatedCourses++ }
+      await mapCourse.run(program.id, course.id)
+      let offering = await findOffering.get(course.id, record.academicYear, record.semester, record.section)
+      if (!offering) { offering = { id: crypto.randomUUID() }; await insertOffering.run(offering.id, course.id, record.academicYear, record.semester, record.section, record.code, record.name); stats.createdCourseOfferings++ }
+      else await updateOffering.run(record.code, record.name, offering.id)
+      await mapOffering.run(offering.id, program.id)
       const importedTeacherIds = new Set()
       for (const teacherName of record.teachers) {
         const normalized = normalizeTeacherName(teacherName)
         if (!normalized) continue
-        let teacher = findTeacher.get(normalized)
-        if (!teacher) { teacher = { id: crypto.randomUUID() }; insertTeacher.run(teacher.id, teacherName, normalized); stats.createdTeachers++ }
+        let teacher = await findTeacher.get(normalized)
+        if (!teacher) { teacher = { id: crypto.randomUUID() }; await insertTeacher.run(teacher.id, teacherName, normalized); stats.createdTeachers++ }
         importedTeacherIds.add(teacher.id)
-        stats.createdTeacherAssignments += Number(mapTeacher.run(offering.id, teacher.id).changes > 0)
+        stats.createdTeacherAssignments += Number((await mapTeacher.run(offering.id, teacher.id)).changes > 0)
       }
       if (options.destructiveSync === true) {
-        for (const assignment of currentAssignments.all(offering.id)) if (!importedTeacherIds.has(assignment.teacher_id)) stats.removedTeacherAssignments += removeAssignment.run(offering.id, assignment.teacher_id).changes
+        for (const assignment of await currentAssignments.all(offering.id)) if (!importedTeacherIds.has(assignment.teacher_id)) stats.removedTeacherAssignments += (await removeAssignment.run(offering.id, assignment.teacher_id)).changes
       }
       stats.importedRows++
     }
-    database.prepare(`INSERT INTO course_imports(id,file_name,file_hash,program_id,imported_by_user_id,imported_rows,skipped_rows,error_rows,status,summary_json)
+    await database.prepare(`INSERT INTO course_imports(id,file_name,file_hash,program_id,imported_by_user_id,imported_rows,skipped_rows,error_rows,status,summary_json)
       VALUES(?,?,?,?,?,?,?,?, 'COMPLETED',?)`).run(historyId, fileName, fileHash, program.id, options.importedByUserId || null, stats.importedRows, stats.skippedRows, stats.invalidRows, JSON.stringify(stats))
-    database.exec('COMMIT')
+  }
+  try {
+    if (database === db) await withTransaction(importRows)
+    else {
+      database.exec('BEGIN')
+      try { await importRows(); database.exec('COMMIT') }
+      catch (error) { database.exec('ROLLBACK'); throw error }
+    }
   } catch (error) {
-    database.exec('ROLLBACK')
-    database.prepare(`INSERT INTO course_imports(id,file_name,file_hash,program_id,imported_by_user_id,imported_rows,skipped_rows,error_rows,status,summary_json,error_message)
+    await database.prepare(`INSERT INTO course_imports(id,file_name,file_hash,program_id,imported_by_user_id,imported_rows,skipped_rows,error_rows,status,summary_json,error_message)
       VALUES(?,?,?,?,?,0,?,?, 'FAILED',?,?)`).run(historyId, fileName, fileHash, program.id, options.importedByUserId || null, stats.skippedRows, stats.invalidRows, JSON.stringify(stats), String(error.message).slice(0, 1000))
     throw error
   }
-  return { ...stats, history: historyRow(database, historyId) }
+  return { ...stats, history: await historyRow(database, historyId) }
 }
 
 export async function importHistoricalCourseData({ directory = DEFAULT_REGISTRAR_DIRECTORY, database = db } = {}) {

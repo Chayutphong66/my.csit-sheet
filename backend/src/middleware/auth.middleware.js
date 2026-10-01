@@ -1,7 +1,7 @@
 import { parseAccessToken } from '../services/token.service.js'
 import { findUserById } from '../services/auth.service.js'
 
-export function requireAuth(req, _res, next) {
+export async function requireAuth(req, _res, next) {
   const header = req.headers.authorization ?? ''
   const token = header.startsWith('Bearer ') ? header.slice(7) : ''
   const payload = parseAccessToken(token)
@@ -13,7 +13,7 @@ export function requireAuth(req, _res, next) {
     return
   }
 
-  const user = findUserById(payload.sub)
+  const user = await findUserById(payload.sub)
   if (!user) {
     const error = new Error('ไม่พบผู้ใช้')
     error.status = 401

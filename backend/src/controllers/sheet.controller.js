@@ -26,6 +26,7 @@ import crypto from 'node:crypto'
 import { calculateContentFingerprint } from '../services/contentFingerprint.service.js'
 import { recordDocumentInteraction } from '../repositories/communityInteraction.repository.js'
 import { findCurrentDocumentVersion, findVersionFile } from '../repositories/documentVersion.repository.js'
+import { discardUploadSession, resolveUploadBody } from '../services/uploadSession.service.js'
 
 function publicSheet(sheet) {
   const { uploaderId, uploaderEmail, rejectReason, sourceRequestId, ...safeSheet } = sheet
@@ -37,38 +38,38 @@ function publicLectureForCatalog(lecture) {
   return { ...safeLecture, documentType: 'Lecture', hasFile: Boolean(lecture.hasFile) }
 }
 
-export function getMySheets(req, res) {
-  const mine = findSheetsByUploaderId(req.user.id).map((sheet) => {
+export async function getMySheets(req, res) {
+  const mine = (await findSheetsByUploaderId(req.user.id)).map((sheet) => {
     const { uploaderUsername, ...rest } = publicSheet(sheet)
     return rest
   })
   res.json(mine)
 }
 
-export function getAllSheets(_req, res) {
-  res.json(findApprovedSheets().map(publicSheet))
+export async function getAllSheets(_req, res) {
+  res.json((await findApprovedSheets()).map(publicSheet))
 }
 
 // Public download for an approved sheet. Any authenticated user may download it from
 // sheet_files; the private upload-request endpoint is not the public source of truth.
-export function getSheetFile(req, res, next) {
+export async function getSheetFile(req, res, next) {
   try {
-    const sheet = findSheetById(req.params.id)
+    const sheet = await findSheetById(req.params.id)
     if (!sheet || sheet.status !== 'APPROVED') {
       const error = new Error('Sheet not found')
       error.status = 404
       throw error
     }
 
-    const currentVersion = findCurrentDocumentVersion('Sheet', sheet.id)
-    const file = currentVersion ? findVersionFile(currentVersion.id) : findSheetFileBySheetId(sheet.id)
+    const currentVersion = await findCurrentDocumentVersion('Sheet', sheet.id)
+    const file = currentVersion ? await findVersionFile(currentVersion.id) : await findSheetFileBySheetId(sheet.id)
     if (!file || !file.fileData) {
       const error = new Error('No file is stored for this sheet')
       error.status = 404
       throw error
     }
 
-    recordDocumentInteraction({
+    await recordDocumentInteraction({
       userId: req.user.id,
       document: { id: sheet.id, documentType: 'Sheet', uploaderId: sheet.uploaderId },
       interactionType: 'DOWNLOAD'
@@ -86,11 +87,11 @@ export function getSheetFile(req, res, next) {
   }
 }
 
-export function getRecommendedSheets(req, res) {
-  const recommended = findRecommendedSheets({
+export async function getRecommendedSheets(req, res) {
+  const recommended = (await findRecommendedSheets({
     limit: 6,
     excludeUploaderId: req.user.id
-  }).map(publicSheet)
+  })).map(publicSheet)
   res.json(recommended)
 }
 
@@ -107,11 +108,14 @@ function assertRequestOwner(req, request) {
   }
 }
 
-export function createRequest(req, res, next) {
+export async function createRequest(req, res, next) {
+  let sessionId = null
   try {
-    const validated = validateUploadPayload(req.body)
-    const fileData = decodeUploadedFile(req.body.fileData, validated.fileType)
-    const request = createUploadRequest({
+    const resolved = await resolveUploadBody(req.body, req.user.id)
+    sessionId = resolved.sessionId
+    const validated = await validateUploadPayload(resolved.body)
+    const fileData = decodeUploadedFile(resolved.body.fileData, validated.fileType)
+    const request = await createUploadRequest({
       userId: req.user.id,
       title: validated.title,
       fileName: validated.fileName,
@@ -129,12 +133,14 @@ export function createRequest(req, res, next) {
       suggestionIds: validated.suggestionIds
     })
 
-    createNotification({
+    await createNotification({
       userId: req.user.id,
       title: 'Upload Request Submitted',
       message: 'Your upload request has been sent and is waiting for administrator approval.',
       uploadRequestId: request.id
     })
+
+    if (sessionId) await discardUploadSession(sessionId)
 
     res.status(201).json(request)
   } catch (error) {
@@ -142,13 +148,14 @@ export function createRequest(req, res, next) {
   }
 }
 
-export function previewDuplicateRequests(req, res, next) {
+export async function previewDuplicateRequests(req, res, next) {
   try {
-    const validated = validateUploadPayload(req.body)
-    const fileData = decodeUploadedFile(req.body.fileData, validated.fileType)
+    const { body } = await resolveUploadBody(req.body, req.user.id)
+    const validated = await validateUploadPayload(body)
+    const fileData = decodeUploadedFile(body.fileData, validated.fileType)
     const fileHash = crypto.createHash('sha256').update(fileData).digest('hex')
     const contentHash = calculateContentFingerprint(fileData, validated.fileType)
-    const matches = findDuplicateMatches({
+    const matches = await findDuplicateMatches({
       id: '', title: validated.title, fileHash, contentHash,
       courseId: validated.courseId, academicYear: validated.academicYear,
       semester: validated.semester, documentType: validated.documentType
@@ -173,17 +180,17 @@ export function previewDuplicateRequests(req, res, next) {
   }
 }
 
-export function getMyUploadRequests(req, res) {
-  res.json(findUploadRequestsByUserId(req.user.id))
+export async function getMyUploadRequests(req, res) {
+  res.json(await findUploadRequestsByUserId(req.user.id))
 }
 
-export function getMyContributions(req, res) {
-  res.json(findContributionSummaryByUserId(req.user.id))
+export async function getMyContributions(req, res) {
+  res.json(await findContributionSummaryByUserId(req.user.id))
 }
 
-export function getUploadRequest(req, res, next) {
+export async function getUploadRequest(req, res, next) {
   try {
-    const request = findUploadRequestById(req.params.id)
+    const request = await findUploadRequestById(req.params.id)
     assertRequestOwner(req, request)
     res.json(request)
   } catch (error) {
@@ -191,12 +198,12 @@ export function getUploadRequest(req, res, next) {
   }
 }
 
-export function getUploadRequestFile(req, res, next) {
+export async function getUploadRequestFile(req, res, next) {
   try {
-    const request = findUploadRequestById(req.params.id)
+    const request = await findUploadRequestById(req.params.id)
     assertRequestOwner(req, request)
 
-    const file = findUploadRequestFileById(request.id)
+    const file = await findUploadRequestFileById(request.id)
     if (!file || !file.fileData) {
       const error = new Error('No file is stored for this request')
       error.status = 404
@@ -218,9 +225,9 @@ export function getUploadRequestFile(req, res, next) {
 // Legacy endpoint kept for backward compatibility. Publishing now happens automatically
 // the moment an admin approves a request. If a client still calls this after publication,
 // return the completed request without creating duplicates.
-export function completeRequest(req, res, next) {
+export async function completeRequest(req, res, next) {
   try {
-    const request = findUploadRequestById(req.params.id)
+    const request = await findUploadRequestById(req.params.id)
     assertRequestOwner(req, request)
 
     if (request.status === 'PENDING') {
@@ -240,21 +247,21 @@ export function completeRequest(req, res, next) {
       throw error
     }
 
-    const published = publishUploadRequest(request.id)
+    const published = await publishUploadRequest(request.id)
     res.json(published)
   } catch (error) {
     next(error)
   }
 }
 
-export function getCatalog(req, res) {
+export async function getCatalog(req, res) {
   const type = String(req.query.type ?? '').toLowerCase()
   const documents = [
     ...(['', 'lectures'].includes(type)
-      ? findApprovedLectures().map(publicLectureForCatalog)
+      ? (await findApprovedLectures()).map(publicLectureForCatalog)
       : []),
     ...(['', 'sheets'].includes(type)
-      ? findRecommendedSheets({ limit: 100, excludeUploaderId: null }).map(publicSheet)
+      ? (await findRecommendedSheets({ limit: 100, excludeUploaderId: null })).map(publicSheet)
       : [])
   ]
 
@@ -272,22 +279,25 @@ export function getCatalog(req, res) {
   res.json({ courses })
 }
 
-export function getMetadata(_req, res) {
+export async function getMetadata(_req, res) {
+  const [courses, programs, periods] = await Promise.all([
+    listCurriculumCourses(), listPrograms(), listAcademicPeriods()
+  ])
   res.json({
-    courses: listCurriculumCourses(),
-    programs: listPrograms(),
-    ...listAcademicPeriods(),
+    courses,
+    programs,
+    ...periods,
     documentTypes: ['Lecture', 'Sheet']
   })
 }
 
-export function getNotifications(req, res) {
-  res.json(findNotificationsByUserId(req.user.id))
+export async function getNotifications(req, res) {
+  res.json(await findNotificationsByUserId(req.user.id))
 }
 
-export function readNotification(req, res, next) {
+export async function readNotification(req, res, next) {
   try {
-    const updated = markNotificationRead({ id: req.params.id, userId: req.user.id })
+    const updated = await markNotificationRead({ id: req.params.id, userId: req.user.id })
     if (!updated) {
       const error = new Error('Notification not found')
       error.status = 404
