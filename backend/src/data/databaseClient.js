@@ -1,7 +1,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 
 const transactionContext = new AsyncLocalStorage()
-const isNetlifyRuntime = process.env.NETLIFY === 'true' || Boolean(process.env.NETLIFY_DB_URL)
+const isNetlifyRuntime = process.env.NETLIFY === 'true' || Boolean(
+  process.env.NETLIFY_DB_URL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT
+)
 
 let rootExecutor
 let localDatabase

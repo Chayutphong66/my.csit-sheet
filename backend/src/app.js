@@ -22,7 +22,7 @@ const projectRoot = path.basename(process.cwd()).toLowerCase() === 'backend'
 const frontendDist = path.resolve(projectRoot, 'frontend/dist')
 
 const app = express()
-const isProduction = process.env.NODE_ENV === 'production'
+const isProduction = process.env.NODE_ENV === 'production' || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT)
 const configuredOrigins = (process.env.ALLOWED_ORIGINS || process.env.FRONTEND_URL || '')
   .split(',')
   .map((origin) => origin.trim())

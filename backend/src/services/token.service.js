@@ -7,7 +7,7 @@ import {
   revokeRefreshSessionByHash
 } from '../repositories/refreshToken.repository.js'
 
-const isProduction = process.env.NODE_ENV === 'production'
+const isProduction = process.env.NODE_ENV === 'production' || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT)
 const configuredJwtSecret = process.env.JWT_SECRET?.trim()
 
 if (isProduction && !configuredJwtSecret) {

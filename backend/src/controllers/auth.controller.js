@@ -3,10 +3,11 @@ import * as authService from '../services/auth.service.js'
 const refreshMaxAge = Number(process.env.REFRESH_TOKEN_TTL_DAYS || 7) * 24 * 60 * 60 * 1000
 
 function refreshCookieOptions() {
+  const isProduction = process.env.NODE_ENV === 'production' || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT)
   return {
     httpOnly: true,
-    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    sameSite: isProduction ? 'strict' : 'lax',
+    secure: isProduction,
     maxAge: refreshMaxAge,
     path: '/api/auth'
   }
