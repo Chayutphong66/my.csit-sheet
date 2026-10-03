@@ -1,4 +1,5 @@
 import * as authService from '../services/auth.service.js'
+import { logServerError } from '../services/safeLogger.service.js'
 
 const refreshMaxAge = Number(process.env.REFRESH_TOKEN_TTL_DAYS || 7) * 24 * 60 * 60 * 1000
 
@@ -19,6 +20,7 @@ export async function login(req, res, next) {
     res.cookie('refreshToken', data.refreshToken, refreshCookieOptions())
     res.json({ user: data.user, accessToken: data.accessToken })
   } catch (error) {
+    if ((error.status ?? 500) >= 500) logServerError('auth.login_failed', error, { operation: 'login' })
     next(error)
   }
 }
@@ -27,6 +29,7 @@ export async function register(req, res, next) {
   try {
     res.status(201).json(await authService.register(req.body))
   } catch (error) {
+    if ((error.status ?? 500) >= 500) logServerError('auth.registration_failed', error, { operation: 'register' })
     next(error)
   }
 }

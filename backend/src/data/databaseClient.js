@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { logServerError } from '../services/safeLogger.service.js'
 
 const transactionContext = new AsyncLocalStorage()
 const isNetlifyRuntime = process.env.NETLIFY === 'true' || Boolean(
@@ -39,7 +40,13 @@ const initialization = (async () => {
       }
     }
   }
-})()
+})().catch((error) => {
+  logServerError('database.initialization_failed', error, {
+    dialect: isNetlifyRuntime ? 'postgres' : 'sqlite',
+    netlifyRuntime: isNetlifyRuntime
+  })
+  throw error
+})
 
 async function currentExecutor() {
   await initialization
@@ -162,7 +169,28 @@ export async function withTransaction(callback) {
 }
 
 export async function checkDatabaseConnection() {
-  await db.prepare('SELECT 1 AS ready').get()
+  try {
+    await db.prepare('SELECT 1 AS ready').get()
+    if (isNetlifyRuntime) {
+      const rows = await db.prepare(`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name IN ('users', 'refresh_tokens')
+      `).all()
+      const tables = new Set(rows.map((row) => row.table_name))
+      const missing = ['users', 'refresh_tokens'].filter((table) => !tables.has(table))
+      if (missing.length) {
+        const error = new Error(`Required database tables are missing: ${missing.join(', ')}`)
+        error.code = 'SCHEMA_NOT_READY'
+        throw error
+      }
+    }
+  } catch (error) {
+    logServerError('database.health_check_failed', error, {
+      dialect: isNetlifyRuntime ? 'postgres' : 'sqlite',
+      netlifyRuntime: isNetlifyRuntime
+    })
+    throw error
+  }
 }
 
 export const databaseDialect = isNetlifyRuntime ? 'postgres' : 'sqlite'
