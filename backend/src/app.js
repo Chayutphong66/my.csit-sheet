@@ -4,7 +4,6 @@ import helmet from 'helmet'
 import cookieParser from 'cookie-parser'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import authRoutes from './routes/auth.routes.js'
 import sheetRoutes from './routes/sheet.routes.js'
 import adminRoutes from './routes/admin.routes.js'
@@ -17,9 +16,10 @@ import { curriculumRouter, suggestionRouter } from './routes/academic.routes.js'
 import { checkDatabaseConnection } from './data/databaseClient.js'
 import uploadSessionRoutes from './routes/uploadSession.routes.js'
 
-const __filename = process.env.NETLIFY === 'true' ? '' : fileURLToPath(import.meta.url)
-const __dirname = process.env.NETLIFY === 'true' ? process.cwd() : path.dirname(__filename)
-const frontendDist = path.resolve(__dirname, '../../frontend/dist')
+const projectRoot = path.basename(process.cwd()).toLowerCase() === 'backend'
+  ? path.resolve(process.cwd(), '..')
+  : process.cwd()
+const frontendDist = path.resolve(projectRoot, 'frontend/dist')
 
 const app = express()
 const isProduction = process.env.NODE_ENV === 'production'

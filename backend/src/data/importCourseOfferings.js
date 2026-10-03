@@ -1,16 +1,16 @@
 import crypto from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import readXlsxFile, { readSheetNames } from 'read-excel-file/node'
 import { db, withTransaction } from './databaseClient.js'
 import { normalizeTeacherName } from '../repositories/academic.repository.js'
 
 const PERIOD_SHEET = /^(25\d{2})[_-]([123])$/
 const COURSE_CELL = /^(\d{6,})\s*-\s*([A-Za-z0-9]+)\b/
-const DEFAULT_REGISTRAR_DIRECTORY = process.env.NETLIFY === 'true'
-  ? path.resolve(process.cwd(), 'backend/data/registrar')
-  : fileURLToPath(new URL('../../data/registrar/', import.meta.url))
+const projectRoot = path.basename(process.cwd()).toLowerCase() === 'backend'
+  ? path.resolve(process.cwd(), '..')
+  : process.cwd()
+const DEFAULT_REGISTRAR_DIRECTORY = path.resolve(projectRoot, 'backend/data/registrar')
 const clean = (value) => String(value?.text ?? value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ')
 
 export function normalizeImportedTeacherName(value) {
