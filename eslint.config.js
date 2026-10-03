@@ -11,8 +11,12 @@ export default [
     languageOptions: { globals: globals.node }
   },
   {
-    files: ['netlify/functions/**/*.{js,mjs}'],
+    files: ['netlify/functions/**/*.{js,mjs,cjs}'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } }
+  },
+  {
+    files: ['netlify/functions/**/*.cjs'],
+    languageOptions: { sourceType: 'commonjs' }
   },
   {
     files: ['frontend/src/**/*.{js,vue}', 'frontend/test/**/*.js'],

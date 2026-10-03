@@ -22,7 +22,7 @@ test('production schema stores Blob keys and never seeds users', () => {
 })
 
 test('Netlify Function delegates to the existing Express application', () => {
-  const entry = readFileSync(path.join(root, 'netlify/functions/api.mjs'), 'utf8')
+  const entry = readFileSync(path.join(root, 'netlify/functions/api.cjs'), 'utf8')
   assert.match(entry, /serverless-http/)
   assert.match(entry, /backend\/src\/app\.js/)
 })
