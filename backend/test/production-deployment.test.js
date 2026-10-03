@@ -9,6 +9,7 @@ test('Netlify configuration builds the SPA and rewrites API traffic to the funct
   const config = readFileSync(path.join(root, 'netlify.toml'), 'utf8')
   assert.match(config, /publish = "frontend\/dist"/)
   assert.match(config, /functions = "netlify\/functions"/)
+  assert.match(config, /included_files = \[[^\]]*"backend\/src\/\*\*"/)
   assert.match(config, /from = "\/api\/\*"[\s\S]*to = "\/\.netlify\/functions\/api\/:splat"/)
   assert.doesNotMatch(config, /DATABASE_URL|NETLIFY_DB_URL|JWT_SECRET/)
 })
