@@ -11,11 +11,11 @@ export default [
     languageOptions: { globals: globals.node }
   },
   {
-    files: ['netlify/functions/**/*.{js,mjs,cjs}'],
+    files: ['netlify/functions-src/**/*.{js,mjs,cjs}'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } }
   },
   {
-    files: ['netlify/functions/**/*.cjs'],
+    files: ['netlify/functions-src/**/*.cjs'],
     languageOptions: { sourceType: 'commonjs' }
   },
   {

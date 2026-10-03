@@ -8,8 +8,8 @@
 
 [functions]
   node_bundler = "esbuild"
-  included_files = ["backend/package.json", "backend/src/**", "backend/data/registrar/**"]
-  external_node_modules = ["@netlify/blobs", "@netlify/database", "cookie-parser", "cors", "express", "helmet", "jsonwebtoken", "read-excel-file", "serverless-http"]
+  included_files = ["backend/data/registrar/**"]
+  external_node_modules = ["@netlify/blobs", "@netlify/database"]
 
 [[redirects]]
   from = "/api/blob/*"

@@ -17,8 +17,8 @@ import { curriculumRouter, suggestionRouter } from './routes/academic.routes.js'
 import { checkDatabaseConnection } from './data/databaseClient.js'
 import uploadSessionRoutes from './routes/uploadSession.routes.js'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
+const __filename = process.env.NETLIFY === 'true' ? '' : fileURLToPath(import.meta.url)
+const __dirname = process.env.NETLIFY === 'true' ? process.cwd() : path.dirname(__filename)
 const frontendDist = path.resolve(__dirname, '../../frontend/dist')
 
 const app = express()

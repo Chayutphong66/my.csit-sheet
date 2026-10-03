@@ -7,37 +7,40 @@ let rootExecutor
 let localDatabase
 let netlifyDatabase
 
-if (isNetlifyRuntime) {
-  const { getDatabase } = await import('@netlify/database')
-  netlifyDatabase = getDatabase()
-  rootExecutor = {
-    async query(sql, parameters = []) {
-      const query = toPostgresQuery(sql, parameters)
-      const result = await netlifyDatabase.pool.query(query.sql, query.parameters)
-      return { ...result, rows: restoreAliases(result.rows, sql) }
+const initialization = (async () => {
+  if (isNetlifyRuntime) {
+    const { getDatabase } = await import('@netlify/database')
+    netlifyDatabase = getDatabase()
+    rootExecutor = {
+      async query(sql, parameters = []) {
+        const query = toPostgresQuery(sql, parameters)
+        const result = await netlifyDatabase.pool.query(query.sql, query.parameters)
+        return { ...result, rows: restoreAliases(result.rows, sql) }
+      }
+    }
+  } else {
+    const local = await import('./database.js')
+    localDatabase = local.db
+    rootExecutor = {
+      async query(sql, parameters = [], mode = 'all') {
+        const statement = localDatabase.prepare(sql)
+        if (mode === 'run') {
+          const result = statement.run(...parameters)
+          return { rows: [], rowCount: Number(result.changes), changes: Number(result.changes) }
+        }
+        if (mode === 'get') {
+          const row = statement.get(...parameters)
+          return { rows: row ? [row] : [], rowCount: row ? 1 : 0 }
+        }
+        const rows = statement.all(...parameters)
+        return { rows, rowCount: rows.length }
+      }
     }
   }
-} else {
-  const local = await import('./database.js')
-  localDatabase = local.db
-  rootExecutor = {
-    async query(sql, parameters = [], mode = 'all') {
-      const statement = localDatabase.prepare(sql)
-      if (mode === 'run') {
-        const result = statement.run(...parameters)
-        return { rows: [], rowCount: Number(result.changes), changes: Number(result.changes) }
-      }
-      if (mode === 'get') {
-        const row = statement.get(...parameters)
-        return { rows: row ? [row] : [], rowCount: row ? 1 : 0 }
-      }
-      const rows = statement.all(...parameters)
-      return { rows, rowCount: rows.length }
-    }
-  }
-}
+})()
 
-function currentExecutor() {
+async function currentExecutor() {
+  await initialization
   return transactionContext.getStore() || rootExecutor
 }
 
@@ -104,15 +107,15 @@ function restoreAliases(rows, sourceSql) {
 function prepare(sql) {
   return {
     async get(...parameters) {
-      const result = await currentExecutor().query(sql, parameters, 'get')
+      const result = await (await currentExecutor()).query(sql, parameters, 'get')
       return result.rows[0]
     },
     async all(...parameters) {
-      const result = await currentExecutor().query(sql, parameters, 'all')
+      const result = await (await currentExecutor()).query(sql, parameters, 'all')
       return result.rows
     },
     async run(...parameters) {
-      const result = await currentExecutor().query(sql, parameters, 'run')
+      const result = await (await currentExecutor()).query(sql, parameters, 'run')
       const changes = Number(result.changes ?? result.rowCount ?? 0)
       return { changes }
     }
@@ -122,6 +125,7 @@ function prepare(sql) {
 export const db = { prepare }
 
 export async function withTransaction(callback) {
+  await initialization
   if (!isNetlifyRuntime) {
     localDatabase.exec('BEGIN')
     try {

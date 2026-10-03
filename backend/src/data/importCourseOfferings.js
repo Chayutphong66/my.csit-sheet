@@ -8,7 +8,9 @@ import { normalizeTeacherName } from '../repositories/academic.repository.js'
 
 const PERIOD_SHEET = /^(25\d{2})[_-]([123])$/
 const COURSE_CELL = /^(\d{6,})\s*-\s*([A-Za-z0-9]+)\b/
-const DEFAULT_REGISTRAR_DIRECTORY = fileURLToPath(new URL('../../data/registrar/', import.meta.url))
+const DEFAULT_REGISTRAR_DIRECTORY = process.env.NETLIFY === 'true'
+  ? path.resolve(process.cwd(), 'backend/data/registrar')
+  : fileURLToPath(new URL('../../data/registrar/', import.meta.url))
 const clean = (value) => String(value?.text ?? value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ')
 
 export function normalizeImportedTeacherName(value) {

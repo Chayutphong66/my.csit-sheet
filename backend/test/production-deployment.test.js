@@ -9,7 +9,7 @@ test('Netlify configuration builds the SPA and rewrites API traffic to the funct
   const config = readFileSync(path.join(root, 'netlify.toml'), 'utf8')
   assert.match(config, /publish = "frontend\/dist"/)
   assert.match(config, /functions = "netlify\/functions"/)
-  assert.match(config, /included_files = \[[^\]]*"backend\/src\/\*\*"/)
+  assert.match(config, /included_files = \[[^\]]*"backend\/data\/registrar\/\*\*"/)
   assert.match(config, /from = "\/api\/\*"[\s\S]*to = "\/\.netlify\/functions\/api\/:splat"/)
   assert.doesNotMatch(config, /DATABASE_URL|NETLIFY_DB_URL|JWT_SECRET/)
 })
@@ -23,7 +23,7 @@ test('production schema stores Blob keys and never seeds users', () => {
 })
 
 test('Netlify Function delegates to the existing Express application', () => {
-  const entry = readFileSync(path.join(root, 'netlify/functions/api.cjs'), 'utf8')
+  const entry = readFileSync(path.join(root, 'netlify/functions-src/api.cjs'), 'utf8')
   assert.match(entry, /serverless-http/)
   assert.match(entry, /backend\/src\/app\.js/)
 })

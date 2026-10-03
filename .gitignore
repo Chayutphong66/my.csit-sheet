@@ -1,5 +1,6 @@
 node_modules/
 .netlify/
+netlify/functions/
 
 # Build output and caches
 dist/
