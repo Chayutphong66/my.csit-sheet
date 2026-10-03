@@ -32,6 +32,14 @@ export function safeErrorDetails(error) {
   }
 }
 
+export function databaseDiagnosticCode(error) {
+  if (error?.name === 'MissingDatabaseConnectionError') return 'DATABASE_CONFIGURATION_MISSING'
+  if (error?.code === 'SCHEMA_NOT_READY' || error?.code === '42P01') return 'DATABASE_SCHEMA_NOT_READY'
+  if (error?.code === '28P01' || error?.code === '28000') return 'DATABASE_AUTHENTICATION_FAILED'
+  if (['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', '57P01'].includes(error?.code)) return 'DATABASE_CONNECTION_FAILED'
+  return 'DATABASE_CHECK_FAILED'
+}
+
 export function logServerError(event, error, context = {}) {
   console.error(JSON.stringify({
     event,

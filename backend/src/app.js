@@ -15,7 +15,7 @@ import contributorRoutes from './routes/contributor.routes.js'
 import { curriculumRouter, suggestionRouter } from './routes/academic.routes.js'
 import { checkDatabaseConnection } from './data/databaseClient.js'
 import uploadSessionRoutes from './routes/uploadSession.routes.js'
-import { logServerError } from './services/safeLogger.service.js'
+import { databaseDiagnosticCode, logServerError } from './services/safeLogger.service.js'
 
 const projectRoot = path.basename(process.cwd()).toLowerCase() === 'backend'
   ? path.resolve(process.cwd(), '..')
@@ -73,13 +73,16 @@ app.use((req, res, next) => {
   next()
 })
 
-app.get('/api/health', async (_req, res, next) => {
+app.get('/api/health', async (_req, res) => {
   try {
     await checkDatabaseConnection()
     res.json({ status: 'ok', database: 'ready' })
   } catch (error) {
     logServerError('api.health_failed', error, { route: '/api/health' })
-    next(error)
+    res.status(500).json({
+      message: 'Internal server error',
+      diagnosticCode: databaseDiagnosticCode(error)
+    })
   }
 })
 

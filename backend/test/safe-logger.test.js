@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { safeErrorDetails } from '../src/services/safeLogger.service.js'
+import { databaseDiagnosticCode, safeErrorDetails } from '../src/services/safeLogger.service.js'
 
 test('safe error details redact connection strings, bearer tokens and configured secrets', () => {
   const previous = process.env.NETLIFY_DB_URL
@@ -23,4 +23,11 @@ test('safe error details omit unsafe error codes', () => {
   const error = new Error('Database failed')
   error.code = 'unsafe value with spaces'
   assert.equal(safeErrorDetails(error).code, undefined)
+})
+
+test('database diagnostic codes expose categories instead of infrastructure details', () => {
+  assert.equal(databaseDiagnosticCode({ name: 'MissingDatabaseConnectionError' }), 'DATABASE_CONFIGURATION_MISSING')
+  assert.equal(databaseDiagnosticCode({ code: '42P01' }), 'DATABASE_SCHEMA_NOT_READY')
+  assert.equal(databaseDiagnosticCode({ code: '28P01' }), 'DATABASE_AUTHENTICATION_FAILED')
+  assert.equal(databaseDiagnosticCode(new Error('private infrastructure failure')), 'DATABASE_CHECK_FAILED')
 })
