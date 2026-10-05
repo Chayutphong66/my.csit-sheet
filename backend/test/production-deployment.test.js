@@ -22,8 +22,26 @@ test('production schema stores Blob keys and never seeds users', () => {
   assert.doesNotMatch(migration, /INSERT INTO users/)
 })
 
+test('production schema reconciliation is forward-only and idempotent', () => {
+  const migration = readFileSync(path.join(root, 'netlify/database/migrations/20261005160000_reconcile_production_schema/migration.sql'), 'utf8')
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS users[\s\S]*program_code[\s\S]*cohort/)
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS refresh_tokens/)
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS document_versions/)
+  assert.match(migration, /CREATE UNIQUE INDEX IF NOT EXISTS idx_courses_code/)
+  assert.match(migration, /ON CONFLICT \(id\) DO NOTHING/)
+  assert.doesNotMatch(migration, /\b(?:DROP|TRUNCATE)\b/i)
+})
+
 test('Netlify Function delegates to the existing Express application', () => {
-  const entry = readFileSync(path.join(root, 'netlify/functions-src/api.cjs'), 'utf8')
+  const entry = readFileSync(path.join(root, 'netlify/functions-src/api.mjs'), 'utf8')
   assert.match(entry, /serverless-http/)
   assert.match(entry, /backend\/src\/app\.js/)
+})
+
+test('Netlify Functions preserve the backend ESM module semantics', () => {
+  const rootPackage = readFileSync(path.join(root, 'package.json'), 'utf8')
+  assert.match(rootPackage, /netlify\/functions-src\/api\.mjs/)
+  assert.match(rootPackage, /--format=esm/)
+  assert.match(rootPackage, /--out-extension:\.js=\.mjs/)
+  assert.doesNotMatch(rootPackage, /--format=cjs/)
 })
