@@ -7,6 +7,7 @@
   NODE_VERSION = "22"
 
 [functions]
+  # Source entries are prebundled as ESM so backend import.meta semantics remain valid.
   node_bundler = "esbuild"
   included_files = ["backend/data/registrar/**"]
   external_node_modules = ["@netlify/blobs", "@netlify/database"]
