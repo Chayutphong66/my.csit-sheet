@@ -9,6 +9,7 @@ const isNetlifyRuntime = process.env.NETLIFY === 'true' || Boolean(
 let rootExecutor
 let localDatabase
 let netlifyDatabase
+const localDatabaseModule = './database.js'
 
 const initialization = (async () => {
   if (isNetlifyRuntime) {
@@ -22,7 +23,9 @@ const initialization = (async () => {
       }
     }
   } else {
-    const local = await import('./database.js')
+    // Keep the local-only node:sqlite implementation out of Netlify's Function bundle.
+    // Local development imports this module at runtime; Netlify always takes the branch above.
+    const local = await import(localDatabaseModule)
     localDatabase = local.db
     rootExecutor = {
       async query(sql, parameters = [], mode = 'all') {

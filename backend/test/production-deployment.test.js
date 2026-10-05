@@ -40,8 +40,11 @@ test('Netlify Function delegates to the existing Express application', () => {
 
 test('Netlify Functions preserve the backend ESM module semantics', () => {
   const rootPackage = readFileSync(path.join(root, 'package.json'), 'utf8')
+  const databaseClient = readFileSync(path.join(root, 'backend/src/data/databaseClient.js'), 'utf8')
   assert.match(rootPackage, /netlify\/functions-src\/api\.mjs/)
   assert.match(rootPackage, /--format=esm/)
   assert.match(rootPackage, /--out-extension:\.js=\.mjs/)
   assert.doesNotMatch(rootPackage, /--format=cjs/)
+  assert.match(databaseClient, /const localDatabaseModule = '\.\/database\.js'/)
+  assert.match(databaseClient, /import\(localDatabaseModule\)/)
 })
