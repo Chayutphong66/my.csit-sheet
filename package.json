@@ -4,13 +4,14 @@
   "version": "1.0.0",
   "type": "module",
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.5.0 <23"
   },
   "scripts": {
     "dev": "concurrently \"npm run dev --workspace frontend\" \"npm run dev --workspace backend\"",
     "dev:frontend": "npm run dev --workspace frontend",
     "dev:backend": "npm run dev --workspace backend",
     "build": "npm run build:frontend && npm run build:functions",
+    "build:railway": "npm run build:frontend",
     "build:frontend": "npm run build --workspace frontend",
     "build:functions": "node -e \"require('node:fs').rmSync('netlify/functions', { recursive: true, force: true })\" && esbuild netlify/functions-src/api.mjs netlify/functions-src/blob.mjs --bundle --platform=node --target=node22 --format=esm --outdir=netlify/functions --out-extension:.js=.mjs --external:pg --external:@netlify/blobs --external:@netlify/database --external:@aws-sdk/client-s3",
     "db:migrate": "npm run db:migrate --workspace backend",

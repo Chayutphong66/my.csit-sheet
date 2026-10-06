@@ -28,6 +28,16 @@ export function loadConfiguration(env = process.env) {
   const storageDriver = env.STORAGE_DRIVER || (production ? 'supabase' : 'database')
   if (!['database', 'supabase', 'netlify'].includes(storageDriver)) throw configurationError('STORAGE_DRIVER must be database, supabase or netlify')
   if (production && storageDriver === 'database') throw configurationError('Production requires external object storage')
+  const storageKey = env.SUPABASE_SECRET_KEY || env.SUPABASE_SERVICE_ROLE_KEY
+  if (storageDriver === 'supabase') {
+    if (!env.SUPABASE_URL?.trim()) throw configurationError('SUPABASE_URL is required for STORAGE_DRIVER=supabase')
+    try {
+      const url = new URL(env.SUPABASE_URL)
+      if (url.protocol !== 'https:' || !url.hostname) throw new Error()
+    } catch { throw configurationError('SUPABASE_URL must be a valid HTTPS URL') }
+    if (!storageKey?.trim()) throw configurationError('SUPABASE_SECRET_KEY is required for STORAGE_DRIVER=supabase')
+    if (!env.SUPABASE_STORAGE_BUCKET?.trim()) throw configurationError('SUPABASE_STORAGE_BUCKET is required for STORAGE_DRIVER=supabase')
+  }
   const cookieSameSite = env.COOKIE_SAME_SITE || (production ? 'strict' : 'lax')
   if (!['strict', 'lax', 'none'].includes(cookieSameSite)) throw configurationError('COOKIE_SAME_SITE must be strict, lax or none')
   const cookieSecure = production || cookieSameSite === 'none'
@@ -47,7 +57,7 @@ export function loadConfiguration(env = process.env) {
     storageDriver, storageUrl: env.SUPABASE_URL,
     // Prefer Supabase's current server-only Secret key. Keep the legacy
     // service_role name as a transition path for existing deployments.
-    storageKey: env.SUPABASE_SECRET_KEY || env.SUPABASE_SERVICE_ROLE_KEY,
+    storageKey,
     storageBucket: env.SUPABASE_STORAGE_BUCKET, port: positiveInteger(env.PORT, 8080, 'PORT', 65535),
     host: env.HOST || (production ? '0.0.0.0' : '127.0.0.1'),
     jwtSecret: env.JWT_SECRET?.trim(), accessTokenTtl: env.ACCESS_TOKEN_TTL || '15m',

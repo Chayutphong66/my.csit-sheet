@@ -90,25 +90,21 @@ Authenticated users can propose a revision with a change type, summary, and file
 
 Approved non-initial revisions award the same 20 contribution points as an accepted original submission. Restores and duplicate bytes do not award points. Contributor profiles expose accepted revision activity, program/cohort metadata, and document-level contribution counts without exposing private account fields.
 
-## Deployment preparation (Phase 1 only)
+## Deployment
 
-Future architecture is Vue on Netlify -> Express on Railway -> Supabase PostgreSQL
-and Storage. Configure `DATABASE_DRIVER=postgres` and a private `DATABASE_URL`;
-production rejects SQLite instead of falling back. PostgreSQL migrations are
-canonical in `backend/migrations/postgres/`, run explicitly by `npm run db:migrate`.
-API startup checks readiness without applying production migrations.
+The production target is one Railway service: Express serves the built Vue SPA
+and `/api` from the same HTTPS origin, backed by Supabase PostgreSQL and private
+Supabase Storage. `VITE_API_URL=/api` is public build configuration; database,
+JWT, and Supabase secret values remain backend-only. Production rejects SQLite
+and local file storage instead of falling back.
 
-`VITE_API_URL` is the only public frontend API base URL. For future cross-site
-sessions configure exact HTTPS `ALLOWED_ORIGINS`, `COOKIE_SAME_SITE=none` and
-the backend-only `JWT_SECRET`; refresh cookies remain HttpOnly + Secure.
-Supabase storage configuration stays unused/unconfigured in local SQLite mode.
-No backend secret belongs in a `VITE_*` variable.
-
-See [PHASE1_PREPARATION.md](PHASE1_PREPARATION.md) for the complete environment
-checklist, canonical migrations, safe dry-run transfer and remaining risks.
-[DEPLOYMENT.md](DEPLOYMENT.md) is the legacy Netlify runbook, not the future Railway
-deployment instructions. Do not create resources, migrate real data, change the
-current Netlify API URL or deploy until Phase 2 is approved.
+PostgreSQL migrations are canonical in `backend/migrations/postgres/`. Railway
+runs `npm run db:migrate` as a pre-deploy command; application startup checks
+readiness without applying DDL. See [PHASE3_RAILWAY.md](PHASE3_RAILWAY.md) for
+the exact service commands, variable names, health check, and release checklist.
+The existing [DEPLOYMENT.md](DEPLOYMENT.md) remains the legacy Netlify runbook.
+See [PHASE1_PREPARATION.md](PHASE1_PREPARATION.md) for the provider-neutral
+configuration and transfer safety model.
 
 `GET /api/health` returns 200 with `status: ok, database: ready`, or safe 503
 dependency/schema categories without credentials, SQL or stack traces.

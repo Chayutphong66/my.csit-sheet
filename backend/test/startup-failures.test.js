@@ -6,7 +6,18 @@ import path from 'node:path'
 const cwd = path.resolve(import.meta.dirname, '..')
 function run(extra, script = 'src/server.js') {
   return spawnSync(process.execPath, [script], { cwd, encoding: 'utf8', timeout: 15000,
-    env: { ...process.env, NODE_ENV: 'production', DATABASE_DRIVER: 'postgres', DATABASE_URL: 'postgresql://127.0.0.1:1/csit_test', ALLOWED_ORIGINS: 'https://mycsit-sheet.netlify.app', STORAGE_DRIVER: 'supabase', ...extra }
+    env: {
+      ...process.env,
+      NODE_ENV: 'production',
+      DATABASE_DRIVER: 'postgres',
+      DATABASE_URL: 'postgresql://127.0.0.1:1/csit_test',
+      ALLOWED_ORIGINS: 'https://mycsit-sheet.netlify.app',
+      STORAGE_DRIVER: 'supabase',
+      SUPABASE_URL: 'https://fixture.supabase.co',
+      SUPABASE_SECRET_KEY: 'sb_secret_fixture-server-only-key',
+      SUPABASE_STORAGE_BUCKET: 'documents',
+      ...extra
+    }
   })
 }
 

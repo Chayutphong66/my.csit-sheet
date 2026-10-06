@@ -2,8 +2,6 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import cookieParser from 'cookie-parser'
-import { existsSync } from 'node:fs'
-import path from 'node:path'
 import authRoutes from './routes/auth.routes.js'
 import sheetRoutes from './routes/sheet.routes.js'
 import adminRoutes from './routes/admin.routes.js'
@@ -17,16 +15,14 @@ import { checkDatabaseConnection } from './data/databaseClient.js'
 import uploadSessionRoutes from './routes/uploadSession.routes.js'
 import { databaseDiagnosticCode, logServerError } from './services/safeLogger.service.js'
 import { config } from './config/environment.js'
+import { mountProductionFrontend } from './services/frontendHosting.js'
 import crypto from 'node:crypto'
-
-const projectRoot = path.basename(process.cwd()).toLowerCase() === 'backend'
-  ? path.resolve(process.cwd(), '..')
-  : process.cwd()
-const frontendDist = path.resolve(projectRoot, 'frontend/dist')
 
 const app = express()
 const isProduction = config.production
 const allowedOrigins = config.allowedOrigins
+
+if (isProduction) app.set('trust proxy', 1)
 
 app.use((req, res, next) => {
   req.requestId = crypto.randomUUID()
@@ -91,13 +87,7 @@ app.use('/api', (req, res) => {
   res.status(404).json({ message: `Route not found: ${req.method} ${req.originalUrl}` })
 })
 
-if (isProduction && existsSync(frontendDist)) {
-  app.use(express.static(frontendDist))
-  app.use((req, res, next) => {
-    if (req.method !== 'GET') return next()
-    res.sendFile(path.join(frontendDist, 'index.html'))
-  })
-}
+mountProductionFrontend(app, { enabled: isProduction })
 
 app.use((req, res) => {
   res.status(404).json({ message: `Route not found: ${req.method} ${req.originalUrl}` })
