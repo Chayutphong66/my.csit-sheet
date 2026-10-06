@@ -27,9 +27,14 @@ major. The pre-deploy migration is the only automated production migration
 entry point. Application startup checks schema readiness but never creates,
 drops, truncates, resets, or migrates tables.
 
-After Railway generates the public HTTPS domain, use that exact origin (with no
-trailing slash or path) for `ALLOWED_ORIGINS`. Keep `VITE_API_URL=/api` so browser
-API and refresh-cookie requests remain same-origin.
+The initial deployment may omit `ALLOWED_ORIGINS` while no public domain exists.
+In that bootstrap state the server can answer platform health checks, but rejects
+every request carrying a cross-origin `Origin` header. Once Railway generates a
+public domain, its platform-provided `RAILWAY_PUBLIC_DOMAIN` is converted to one
+exact HTTPS allowed origin automatically. An explicit `ALLOWED_ORIGINS` remains
+supported and takes precedence; it must contain exact HTTPS origins with no path
+or trailing slash. Keep `VITE_API_URL=/api` so browser API and refresh-cookie
+requests remain same-origin.
 
 ## Environment variable names
 
@@ -50,7 +55,7 @@ source, logs, build arguments, or `VITE_*` variables.
 - `STORAGE_DRIVER=supabase`
 - `SUPABASE_URL`
 - `SUPABASE_STORAGE_BUCKET=documents`
-- `ALLOWED_ORIGINS`
+- `ALLOWED_ORIGINS` (optional explicit override after a domain exists)
 - `COOKIE_SAME_SITE=lax`
 - `ACCESS_TOKEN_TTL=15m`
 - `REFRESH_TOKEN_TTL_DAYS=7`

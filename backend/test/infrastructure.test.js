@@ -40,6 +40,15 @@ test('configuration is explicit, bounded, provider neutral and fails closed', ()
   assert.throws(() => loadConfiguration({ STORAGE_DRIVER: 'supabase', SUPABASE_URL: 'https://fixture.supabase.co', SUPABASE_SECRET_KEY: 'fixture' }), /SUPABASE_STORAGE_BUCKET/)
   assert.throws(() => loadConfiguration({ DATABASE_POOL_MAX: '51' }), /DATABASE_POOL_MAX/)
   assert.throws(() => loadConfiguration({ ALLOWED_ORIGINS: '*' }), /explicit HTTP/)
+  assert.throws(() => loadConfiguration({
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgresql://localhost/test',
+    STORAGE_DRIVER: 'supabase',
+    SUPABASE_URL: 'https://fixture.supabase.co',
+    SUPABASE_SECRET_KEY: 'sb_secret_fixture-server-only-key',
+    SUPABASE_STORAGE_BUCKET: 'documents',
+    RAILWAY_PUBLIC_DOMAIN: 'https://invalid.example'
+  }), /RAILWAY_PUBLIC_DOMAIN/)
   assert.throws(() => loadConfiguration({ COOKIE_SAME_SITE: 'none' }), /HTTPS/)
   assert.equal(loadConfiguration({ SUPABASE_SECRET_KEY: 'current-secret', SUPABASE_SERVICE_ROLE_KEY: 'legacy-secret' }).storageKey, 'current-secret')
   assert.equal(loadConfiguration({ SUPABASE_SERVICE_ROLE_KEY: 'legacy-secret' }).storageKey, 'legacy-secret')
@@ -56,6 +65,25 @@ test('configuration is explicit, bounded, provider neutral and fails closed', ()
   assert.equal(production.host, '0.0.0.0'); assert.equal(production.port, 4567)
   assert.equal(production.cookieSecure, true); assert.equal(production.cookieSameSite, 'none')
   assert.throws(() => validateAuthentication(production), /JWT_SECRET/)
+  const productionBootstrap = loadConfiguration({
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgresql://localhost/test',
+    STORAGE_DRIVER: 'supabase',
+    SUPABASE_URL: 'https://fixture.supabase.co',
+    SUPABASE_SECRET_KEY: 'sb_secret_fixture-server-only-key',
+    SUPABASE_STORAGE_BUCKET: 'documents'
+  })
+  assert.deepEqual(productionBootstrap.allowedOrigins, [])
+  const railwayProduction = loadConfiguration({
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgresql://localhost/test',
+    STORAGE_DRIVER: 'supabase',
+    SUPABASE_URL: 'https://fixture.supabase.co',
+    SUPABASE_SECRET_KEY: 'sb_secret_fixture-server-only-key',
+    SUPABASE_STORAGE_BUCKET: 'documents',
+    RAILWAY_PUBLIC_DOMAIN: 'my-csit-sheet.up.railway.app'
+  })
+  assert.deepEqual(railwayProduction.allowedOrigins, ['https://my-csit-sheet.up.railway.app'])
 })
 
 test('production startup reports missing configuration without touching SQLite', () => {

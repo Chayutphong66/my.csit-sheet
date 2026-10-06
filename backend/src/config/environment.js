@@ -12,6 +12,16 @@ function positiveInteger(value, fallback, name, maximum = 1000000) {
   return number
 }
 
+function railwayPublicOrigin(value) {
+  const domain = value?.trim().toLowerCase()
+  if (!domain) return ''
+  try {
+    const url = new URL(`https://${domain}`)
+    if (url.host !== domain || url.pathname !== '/' || url.search || url.hash) throw new Error()
+    return url.origin
+  } catch { throw configurationError('RAILWAY_PUBLIC_DOMAIN must be a valid hostname') }
+}
+
 export function loadConfiguration(env = process.env) {
   if (env.NODE_ENV && !['development', 'test', 'production'].includes(env.NODE_ENV)) throw configurationError('NODE_ENV must be development, test or production')
   const production = env.NODE_ENV === 'production'
@@ -42,7 +52,9 @@ export function loadConfiguration(env = process.env) {
   if (!['strict', 'lax', 'none'].includes(cookieSameSite)) throw configurationError('COOKIE_SAME_SITE must be strict, lax or none')
   const cookieSecure = production || cookieSameSite === 'none'
   if (cookieSameSite === 'none' && !production) throw configurationError('COOKIE_SAME_SITE=none requires production HTTPS')
-  const origins = (env.ALLOWED_ORIGINS || env.FRONTEND_URL || (production ? '' : 'http://127.0.0.1:5173,http://localhost:5173'))
+  const configuredOrigins = env.ALLOWED_ORIGINS || env.FRONTEND_URL
+  const platformOrigin = production && !configuredOrigins ? railwayPublicOrigin(env.RAILWAY_PUBLIC_DOMAIN) : ''
+  const origins = (configuredOrigins || platformOrigin || (production ? '' : 'http://127.0.0.1:5173,http://localhost:5173'))
     .split(',').map(value => value.trim()).filter(Boolean)
   for (const origin of origins) {
     try {
@@ -50,7 +62,6 @@ export function loadConfiguration(env = process.env) {
       if (url.origin !== origin || !['http:', 'https:'].includes(url.protocol) || (production && url.protocol !== 'https:')) throw new Error()
     } catch { throw configurationError('ALLOWED_ORIGINS must contain explicit HTTP(S) origins; production requires HTTPS') }
   }
-  if (production && !origins.length) throw configurationError('ALLOWED_ORIGINS or FRONTEND_URL is required in production')
   return Object.freeze({
     production, databaseDriver, databaseUrl: env.DATABASE_URL,
     databasePath: env.DATABASE_PATH, poolMax: positiveInteger(env.DATABASE_POOL_MAX, 5, 'DATABASE_POOL_MAX', 50),
