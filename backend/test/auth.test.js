@@ -176,3 +176,32 @@ test('USER cannot access ADMIN-only routes', async () => {
 
   assert.equal(adminResult.response.status, 403)
 })
+
+test('duplicate usernames/emails and concurrent registration return safe conflicts', async () => {
+  const body = { username: 'concurrentuser', email: 'concurrent@example.com', password: 'CorrectHorse123', program: 'IT', cohort: '66' }
+  const results = await Promise.all([request('/auth/register', { body }), request('/auth/register', { body })])
+  assert.deepEqual(results.map(result => result.response.status).sort(), [201, 409])
+  assert.equal((await request('/auth/register', { body: { ...body, username: 'differentuser' } })).response.status, 409)
+  assert.equal((await request('/auth/register', { body: { ...body, email: 'different@example.com' } })).response.status, 409)
+  assert.equal(db.prepare('SELECT COUNT(*) count FROM users WHERE username=?').get(body.username).count, 1)
+})
+
+test('registration SQL failure leaves no user and exposes no internal error', async () => {
+  db.exec("CREATE TRIGGER registration_failure BEFORE INSERT ON users WHEN NEW.username='faileduser' BEGIN SELECT RAISE(ABORT,'private registration SQL failure'); END")
+  try {
+    const result = await request('/auth/register', { body: { username: 'faileduser', email: 'failed@example.com', password: 'CorrectHorse123', program: 'CS', cohort: '66' } })
+    assert.equal(result.response.status, 500)
+    assert.equal(result.data.message, 'Internal server error')
+    assert.equal(db.prepare("SELECT id FROM users WHERE username='faileduser'").get(), undefined)
+  } finally { db.exec('DROP TRIGGER registration_failure') }
+})
+
+test('expired refresh sessions are rejected and logout clears matching cookie attributes', async () => {
+  const login = await request('/auth/login', { body: { usernameOrEmail: 'student01', password: 'User@1234' } })
+  const cookie = refreshCookie(login.cookie)
+  db.prepare("UPDATE refresh_tokens SET expires_at='2000-01-01 00:00:00' WHERE user_id='2' AND revoked_at IS NULL").run()
+  assert.equal((await request('/auth/refresh', { cookie })).response.status, 401)
+  const logout = await request('/auth/logout', { cookie })
+  assert.equal(logout.response.status, 204)
+  assert.match(logout.cookie, /HttpOnly/); assert.match(logout.cookie, /SameSite=Lax/); assert.match(logout.cookie, /Path=\/api\/auth/)
+})

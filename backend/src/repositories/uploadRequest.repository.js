@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { db, withTransaction } from '../data/databaseClient.js'
+import { db, withTransaction, lockUploadRequest, lockAssetHash } from '../data/databaseClient.js'
 import { createLecture } from './lecture.repository.js'
 import { createLectureFile, lectureHasFile } from './lectureFile.repository.js'
 import { createSheetFile, sheetHasFile } from './sheetFile.repository.js'
@@ -145,7 +145,7 @@ export async function createUploadRequest({
   const fileHash = fileData ? crypto.createHash('sha256').update(Buffer.from(fileData)).digest('hex') : ''
   const contentHash = fileData ? calculateContentFingerprint(fileData, fileType) : ''
   const normalizedTitle = normalizeTitle(title)
-  const duplicateStatus = await classifyDuplicate({
+  let duplicateStatus = await classifyDuplicate({
     fileHash, contentHash, courseId: course?.id ?? '', academicYear, semester, documentType, normalizedTitle
   })
 
@@ -154,6 +154,8 @@ export async function createUploadRequest({
   // because SQLite validates a non-NULL FK value against the parent table and an
   // empty string matches no row -> "FOREIGN KEY constraint failed".
   await withTransaction(async () => {
+    if (fileHash) await lockAssetHash(fileHash)
+    duplicateStatus = await classifyDuplicate({ fileHash, contentHash, courseId: course?.id ?? '', academicYear, semester, documentType, normalizedTitle })
     const asset = fileData ? await getOrCreateFileAsset({
       binaryHash: fileHash,
       contentHash,
@@ -473,31 +475,32 @@ async function findPublishedRecord(request) {
 // file BLOB stays reachable for download. Insert + status update run in one
 // transaction to avoid a half-published request.
 export async function publishUploadRequest(id, { adminId = '' } = {}) {
-  const request = await findUploadRequestById(id)
-  if (!request) return null
+  return withTransaction(async () => {
+    await lockUploadRequest(id)
+    const request = await findUploadRequestById(id)
+    if (!request) return null
 
-  const existing = await findPublishedRecord(request)
-  if (existing?.hasFile) {
-    await db.prepare(
-      `UPDATE upload_requests
-       SET status = 'COMPLETED',
-           decided_by = COALESCE(decided_by, ?),
-           decided_at = COALESCE(NULLIF(decided_at, ''), CURRENT_TIMESTAMP),
-           completed_at = COALESCE(NULLIF(completed_at, ''), CURRENT_TIMESTAMP),
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`
-    ).run(adminId || null, id)
-    return await findUploadRequestById(id)
-  }
+    const existing = await findPublishedRecord(request)
+    if (existing?.hasFile) {
+      await db.prepare(
+        `UPDATE upload_requests
+         SET status = 'COMPLETED',
+             decided_by = COALESCE(decided_by, ?),
+             decided_at = COALESCE(NULLIF(decided_at, ''), CURRENT_TIMESTAMP),
+             completed_at = COALESCE(NULLIF(completed_at, ''), CURRENT_TIMESTAMP),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`
+      ).run(adminId || null, id)
+      return await findUploadRequestById(id)
+    }
 
-  const file = await findUploadRequestFileById(id)
-  if ((!existing || !existing.hasFile) && (!file || !file.fileData)) {
-    throw new Error('No uploaded file is available to publish')
-  }
+    const file = await findUploadRequestFileById(id)
+    if ((!existing || !existing.hasFile) && (!file || !file.fileData)) {
+      throw new Error('No uploaded file is available to publish')
+    }
 
-  const subject = request.courseName || request.courseId || 'General'
+    const subject = request.courseName || request.courseId || 'General'
 
-  await withTransaction(async () => {
     if (isLectureDocument(request.documentType)) {
       const lecture = existing
         ? { id: existing.id }
@@ -593,9 +596,9 @@ export async function publishUploadRequest(id, { adminId = '' } = {}) {
         WHERE id = ?
       `).run(adminId || null, sheetId, id)
     }
-  })
 
-  return await findUploadRequestById(id)
+    return await findUploadRequestById(id)
+  })
 }
 
 export async function failUploadRequest(id) {

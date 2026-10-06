@@ -11,15 +11,12 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const dataDir = path.resolve(__dirname, '../../data')
 
+if (process.env.NODE_ENV === 'production' || process.env.DATABASE_DRIVER === 'postgres') {
+  throw new Error('Direct SQLite access is local-only; use the configured database client')
+}
 mkdirSync(dataDir, { recursive: true })
 
 const configuredDatabasePath = process.env.DATABASE_PATH?.trim()
-if (process.env.NODE_ENV === 'production' && !configuredDatabasePath) {
-  throw new Error('DATABASE_PATH must point to persistent storage in production')
-}
-if (process.env.NODE_ENV === 'production' && !path.isAbsolute(configuredDatabasePath)) {
-  throw new Error('DATABASE_PATH must be an absolute path in production')
-}
 const databasePath = configuredDatabasePath || path.join(dataDir, 'csit-sheet.sqlite')
 mkdirSync(path.dirname(databasePath), { recursive: true })
 

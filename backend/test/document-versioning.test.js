@@ -96,3 +96,17 @@ test('canonical documents keep immutable approved history through approval, reje
   assert.equal(db.prepare('SELECT COUNT(1) count FROM file_assets').get().count, 4)
   assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), [])
 })
+
+test('concurrent approvals assign distinct versions and concurrent duplicate revisions are rejected', async () => {
+  const user = await login('versionuser1'); const admin = await login('versionadmin', 'Admin@1234')
+  const document = db.prepare("SELECT id FROM lectures WHERE title='Canonical Lecture'").get()
+  const before = db.prepare('SELECT MAX(version_number) value FROM document_versions WHERE document_id=?').get(document.id).value
+  const pending = await Promise.all(['parallel one', 'parallel two'].map(text => api(`/documents/lecture/${document.id}/revisions`, { method: 'POST', token: user, body: revisionBody(`${text}.pdf`, text, 'Independent concurrent correction') })))
+  assert.ok(pending.every(result => result.status === 201))
+  const approved = await Promise.all(pending.map(result => api(`/admin/revisions/${result.data.id}/approve`, { method: 'PATCH', token: admin })))
+  assert.ok(approved.every(result => result.status === 200))
+  assert.deepEqual(approved.map(result => result.data.versionNumber).sort((a, b) => a - b), [before + 1, before + 2])
+  const duplicate = revisionBody('concurrent-duplicate.pdf', 'parallel exact duplicate', 'Concurrent same content must not be rewarded twice')
+  const duplicates = await Promise.all([1, 2].map(() => api(`/documents/lecture/${document.id}/revisions`, { method: 'POST', token: user, body: duplicate })))
+  assert.deepEqual(duplicates.map(result => result.status).sort(), [201, 409])
+})

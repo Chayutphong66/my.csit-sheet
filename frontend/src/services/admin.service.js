@@ -1,15 +1,15 @@
-import { apiClient, request, requestWithChunkedFile } from '@/services/api'
+import { apiClient, request, requestWithChunkedFile, useNetlifyFiles } from '@/services/api'
 
 // Admin operations: user management, document management, approval / rejection.
 export const adminApi = {
   adminUploadRequests: (status = '') => request({ url: `/admin/upload-requests${status ? `?status=${encodeURIComponent(status)}` : ''}` }),
   adminDownloadUploadRequestFile: (id) =>
     apiClient
-      .get(import.meta.env.PROD ? `/blob/request/${encodeURIComponent(id)}/view` : `/admin/upload-requests/${id}/file`, { responseType: 'blob' })
+      .get(useNetlifyFiles ? `/blob/request/${encodeURIComponent(id)}/view` : `/admin/upload-requests/${id}/file`, { responseType: 'blob' })
       .then((response) => response.data),
   publicDocumentFile: (match, action = 'view') =>
     apiClient
-      .get(import.meta.env.PROD ? `/blob/${match.documentType.toLowerCase()}/${encodeURIComponent(match.publicDocumentId)}/${action}` : `/documents/${match.documentType.toLowerCase()}/${match.publicDocumentId}/${action}`, { responseType: 'blob' })
+      .get(useNetlifyFiles ? `/blob/${match.documentType.toLowerCase()}/${encodeURIComponent(match.publicDocumentId)}/${action}` : `/documents/${match.documentType.toLowerCase()}/${match.publicDocumentId}/${action}`, { responseType: 'blob' })
       .then((response) => response.data),
   adminUsers: () => request({ url: '/admin/users' }),
   adminCreateUploadRequest: (data) =>
@@ -30,7 +30,7 @@ export const adminApi = {
   confirmCourseImport: (data) => requestWithChunkedFile({ url: '/admin/course-imports/confirm', method: 'POST', data }),
   courseImportHistory: () => request({ url: '/admin/course-imports' }),
   revisions: (status = '') => request({ url: `/admin/revisions?status=${encodeURIComponent(status)}` }),
-  revisionFile: (id) => apiClient.get(import.meta.env.PROD ? `/blob/version/${encodeURIComponent(id)}/view` : `/admin/revisions/${encodeURIComponent(id)}/file`, { responseType: 'blob' }).then(response => response.data),
+  revisionFile: (id) => apiClient.get(useNetlifyFiles ? `/blob/version/${encodeURIComponent(id)}/view` : `/admin/revisions/${encodeURIComponent(id)}/file`, { responseType: 'blob' }).then(response => response.data),
   approveRevision: (id) => request({ url: `/admin/revisions/${encodeURIComponent(id)}/approve`, method: 'PATCH' }),
   rejectRevision: (id, reason) => request({ url: `/admin/revisions/${encodeURIComponent(id)}/reject`, method: 'PATCH', data: { reason } }),
   restoreVersion: (document, versionId) => request({ url: `/admin/documents/${document.documentType.toLowerCase()}/${encodeURIComponent(document.id)}/restore/${encodeURIComponent(versionId)}`, method: 'POST' }),

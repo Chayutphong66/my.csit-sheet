@@ -1,11 +1,11 @@
-import { apiClient, request, requestWithChunkedFile } from '@/services/api'
+import { apiClient, request, requestWithChunkedFile, useNetlifyFiles } from '@/services/api'
 
 function fileResponse(response) {
   return { blob: response.data, contentType: response.headers?.['content-type'] }
 }
 
 function filePath(kind, id, action, legacy) {
-  return import.meta.env.PROD ? `/blob/${kind}/${encodeURIComponent(id)}/${action}` : legacy
+  return useNetlifyFiles ? `/blob/${kind}/${encodeURIComponent(id)}/${action}` : legacy
 }
 
 export const documentApi = {

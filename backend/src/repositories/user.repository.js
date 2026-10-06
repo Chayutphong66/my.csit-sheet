@@ -29,23 +29,32 @@ export async function findUserById(id) {
 }
 
 export async function createUser(user) {
-  await db.prepare(`
-    INSERT INTO users (id, username, display_name, email, password, role, avatar_url, is_verified, provider, program_code, cohort)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    user.id,
-    user.username,
-    user.displayName || user.username,
-    user.email,
-    user.password,
-    user.role,
-    user.avatarUrl ?? '',
-    user.isVerified ? 1 : 0,
-    user.provider ?? 'local',
-    user.program ?? '',
-    user.cohort ?? ''
-  )
+  try {
+    await db.prepare(`
+      INSERT INTO users (id, username, display_name, email, password, role, avatar_url, is_verified, provider, program_code, cohort)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      user.id,
+      user.username,
+      user.displayName || user.username,
+      user.email,
+      user.password,
+      user.role,
+      user.avatarUrl ?? '',
+      user.isVerified ? 1 : 0,
+      user.provider ?? 'local',
+      user.program ?? '',
+      user.cohort ?? ''
+    )
 
+  } catch (error) {
+    if (error.code === '23505' || (error.code === 'ERR_SQLITE_ERROR' && /UNIQUE constraint failed: users\.(?:username|email)/.test(error.message))) {
+      const conflict = new Error('Username or email is already registered')
+      conflict.status = 409
+      throw conflict
+    }
+    throw error
+  }
   return await findUserById(user.id)
 }
 

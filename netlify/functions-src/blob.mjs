@@ -1,4 +1,6 @@
+import './legacyEnvironment.mjs'
 import { getStore } from '@netlify/blobs'
+import { logServerError } from '../../backend/src/services/safeLogger.service.js'
 import { db } from '../../backend/src/data/databaseClient.js'
 import { findUserById } from '../../backend/src/repositories/user.repository.js'
 import { recordDocumentInteraction } from '../../backend/src/repositories/communityInteraction.repository.js'
@@ -101,7 +103,7 @@ export default async function handler(request, context) {
       }
     })
   } catch (error) {
-    console.error('Blob delivery failed', error)
+    logServerError('netlify.blob_delivery_failed', error)
     return json('Internal server error', 500)
   }
 }

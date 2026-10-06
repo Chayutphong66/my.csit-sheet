@@ -1,6 +1,9 @@
 import axios from 'axios'
 
 const API_URL = import.meta.env.VITE_API_URL ?? '/api'
+// Transitional Netlify file endpoints apply only to its same-origin backend.
+// A configured external Express API always uses its normal document endpoints.
+export const useNetlifyFiles = import.meta.env.PROD && !/^https?:\/\//i.test(API_URL)
 
 let accessToken = null
 let refreshPromise = null

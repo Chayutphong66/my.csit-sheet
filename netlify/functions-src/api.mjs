@@ -1,9 +1,10 @@
 import serverless from 'serverless-http'
+import './legacyEnvironment.mjs'
 
 let handlerPromise
 
 export async function handler(event, context) {
-  // The imported app selects Netlify Postgres at runtime; local SQLite stays unbundled.
+  // Transitional Netlify wrapper; provider configuration belongs only in this adapter.
   handlerPromise ||= import('../../backend/src/app.js')
     .then(({ default: app }) => serverless(app))
 

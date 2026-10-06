@@ -1,4 +1,4 @@
-import { apiClient, request } from '@/services/api'
+import { apiClient, request, useNetlifyFiles } from '@/services/api'
 
 function filenameFromDisposition(disposition) {
   const encoded = disposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
@@ -26,7 +26,7 @@ export const sheetApi = {
   catalog: (type) => request({ url: `/sheets/catalog?type=${encodeURIComponent(type ?? '')}` }),
   // Download an approved sheet's stored file (available to any signed-in user).
   downloadFile: (id) =>
-    apiClient.get(import.meta.env.PROD ? `/blob/sheet/${encodeURIComponent(id)}/download` : `/sheets/${id}/download`, { responseType: 'blob' }).then(downloadResponse)
+    apiClient.get(useNetlifyFiles ? `/blob/sheet/${encodeURIComponent(id)}/download` : `/sheets/${id}/download`, { responseType: 'blob' }).then(downloadResponse)
 }
 
 export const lectureApi = {
@@ -34,5 +34,5 @@ export const lectureApi = {
   one: (id) => request({ url: `/lectures/${id}` }),
   // Download an approved lecture's stored file (available to any signed-in user).
   downloadFile: (id) =>
-    apiClient.get(import.meta.env.PROD ? `/blob/lecture/${encodeURIComponent(id)}/download` : `/lectures/${id}/download`, { responseType: 'blob' }).then(downloadResponse)
+    apiClient.get(useNetlifyFiles ? `/blob/lecture/${encodeURIComponent(id)}/download` : `/lectures/${id}/download`, { responseType: 'blob' }).then(downloadResponse)
 }

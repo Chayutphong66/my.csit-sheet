@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { db, databaseDialect, withTransaction } from '../data/databaseClient.js'
-import { deleteFileBytes, readFileBytes, storeFileBytes } from '../services/fileStorage.service.js'
+import { readFileBytes, storeFileBytes } from '../services/fileStorage.service.js'
+import { config } from '../config/environment.js'
 
 function toFileAsset(row) {
   if (!row) return null
@@ -12,7 +13,7 @@ function toFileAsset(row) {
     mimeType: row.mime_type,
     fileSize: Number(row.file_size),
     fileData: row.file_data,
-    blobKey: row.blob_key || '',
+    blobKey: row.storage_key || row.blob_key || '',
     createdAt: row.created_at,
     updatedAt: row.updated_at
   }
@@ -35,17 +36,19 @@ export async function findFileAssetByHash(binaryHash) {
 export async function getOrCreateFileAsset({ binaryHash, contentHash = '', originalFilename, mimeType = '', fileData }) {
   const buffer = Buffer.from(fileData ?? [])
   if (!binaryHash || !buffer.length) throw new Error('A non-empty file and binary hash are required')
+  if (crypto.createHash('sha256').update(buffer).digest('hex') !== binaryHash) throw new Error('File bytes do not match their SHA-256')
   const blobKey = await storeFileBytes({
     binaryHash,
     fileData: buffer,
     metadata: { originalFilename, mimeType }
   })
   if (databaseDialect === 'postgres') {
+    const modernStorage = config.storageDriver !== 'netlify'
     await db.prepare(`
       INSERT OR IGNORE INTO file_assets (
-        id, binary_hash, content_hash, original_filename, mime_type, file_size, blob_key, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `).run(crypto.randomUUID(), binaryHash, contentHash || null, originalFilename, mimeType, buffer.length, blobKey)
+        id, binary_hash, content_hash, original_filename, mime_type, file_size, file_data, blob_key${modernStorage ? ', storage_key, storage_provider' : ''}, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?${modernStorage ? ', ?, ?' : ''}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).run(crypto.randomUUID(), binaryHash, contentHash || null, originalFilename, mimeType, buffer.length, blobKey ? null : buffer, blobKey, ...(modernStorage ? [blobKey, config.storageDriver] : []))
   } else {
     await db.prepare(`
       INSERT OR IGNORE INTO file_assets (
@@ -78,22 +81,21 @@ export async function countFileAssetReferences(id) {
 }
 
 export async function deleteOrphanFileAssets() {
-  const orphans = await db.prepare(`
-    SELECT id, blob_key FROM file_assets
-    WHERE NOT EXISTS (SELECT 1 FROM upload_requests WHERE upload_requests.file_asset_id = file_assets.id)
+  return withTransaction(async () => {
+    const unreferenced = `
+      NOT EXISTS (SELECT 1 FROM upload_requests WHERE upload_requests.file_asset_id = file_assets.id)
       AND NOT EXISTS (SELECT 1 FROM lecture_files WHERE lecture_files.file_asset_id = file_assets.id)
       AND NOT EXISTS (SELECT 1 FROM sheet_files WHERE sheet_files.file_asset_id = file_assets.id)
       AND NOT EXISTS (SELECT 1 FROM document_versions WHERE document_versions.file_asset_id = file_assets.id)
-  `).all()
-  if (!orphans.length) return 0
-  const deleted = await withTransaction(async () => {
-    let count = 0
+    `
+    const orphans = await db.prepare(`SELECT id FROM file_assets WHERE ${unreferenced}${databaseDialect === 'postgres' ? ' FOR UPDATE' : ''}`).all()
+    let deleted = 0
     for (const orphan of orphans) {
-      const result = await db.prepare('DELETE FROM file_assets WHERE id = ?').run(orphan.id)
-      count += result.changes
+      deleted += (await db.prepare(`DELETE FROM file_assets WHERE id = ? AND ${unreferenced}`).run(orphan.id)).changes
     }
-    return count
+    // External content-addressed objects are retained intentionally. Deleting after
+    // COMMIT races a new reference/upload of the same SHA. A future reviewed GC
+    // must coordinate object deletion with writers; never delete a shared object here.
+    return deleted
   })
-  await Promise.all(orphans.map(({ blob_key: blobKey }) => deleteFileBytes(blobKey)))
-  return deleted
 }

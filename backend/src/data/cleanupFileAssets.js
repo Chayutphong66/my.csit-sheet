@@ -1,9 +1,9 @@
-import { db } from './database.js'
+import { closeDatabase } from './databaseClient.js'
 import { countFileAssets, deleteOrphanFileAssets } from '../repositories/fileAsset.repository.js'
 
-const before = countFileAssets()
-const removed = deleteOrphanFileAssets()
-const after = countFileAssets()
-
-console.log(JSON.stringify({ before, removed, after }))
-db.close()
+try {
+  const before = await countFileAssets()
+  const removed = await deleteOrphanFileAssets()
+  const after = await countFileAssets()
+  console.log(JSON.stringify({ before, removed, after }))
+} finally { await closeDatabase() }

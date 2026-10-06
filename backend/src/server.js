@@ -1,20 +1,20 @@
-import app from './app.js'
-import { db } from './data/database.js'
+import { logServerError } from './services/safeLogger.service.js'
+import { attachGracefulShutdown } from './services/serverLifecycle.js'
 
-const port = process.env.PORT ?? 8080
-const host = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1')
-
-const server = app.listen(port, host, () => {
-  console.log(`CSIT Sheet API running on http://${host}:${port}`)
-})
-
-function shutdown(signal) {
-  console.info(`${signal} received; shutting down`)
-  server.close(() => {
-    db.close()
-    process.exit(0)
-  })
+let closeDatabase
+try {
+  const { config } = await import('./config/environment.js')
+  const { default: app } = await import('./app.js')
+  const database = await import('./data/databaseClient.js')
+  closeDatabase = database.closeDatabase
+  const { checkDatabaseConnection } = database
+  await checkDatabaseConnection()
+  const server = app.listen(config.port, config.host, () => console.info(JSON.stringify({ event: 'server.started', port: config.port })))
+  attachGracefulShutdown(server, closeDatabase)
+} catch (error) {
+  logServerError('server.startup_failed', error, { stage: 'startup' })
+  if (closeDatabase) {
+    try { await closeDatabase() } catch (closeError) { logServerError('server.cleanup_failed', closeError) }
+  }
+  process.exitCode = 1
 }
-
-process.on('SIGTERM', () => shutdown('SIGTERM'))
-process.on('SIGINT', () => shutdown('SIGINT'))

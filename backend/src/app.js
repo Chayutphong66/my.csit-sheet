@@ -16,6 +16,8 @@ import { curriculumRouter, suggestionRouter } from './routes/academic.routes.js'
 import { checkDatabaseConnection } from './data/databaseClient.js'
 import uploadSessionRoutes from './routes/uploadSession.routes.js'
 import { databaseDiagnosticCode, logServerError } from './services/safeLogger.service.js'
+import { config } from './config/environment.js'
+import crypto from 'node:crypto'
 
 const projectRoot = path.basename(process.cwd()).toLowerCase() === 'backend'
   ? path.resolve(process.cwd(), '..')
@@ -23,30 +25,14 @@ const projectRoot = path.basename(process.cwd()).toLowerCase() === 'backend'
 const frontendDist = path.resolve(projectRoot, 'frontend/dist')
 
 const app = express()
-const isProduction = process.env.NODE_ENV === 'production' || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT)
-const configuredOrigins = (process.env.ALLOWED_ORIGINS || process.env.FRONTEND_URL || '')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean)
-const platformOrigins = [process.env.URL]
-  .map((origin) => String(origin || '').trim())
-  .filter(Boolean)
-const allowedOrigins = configuredOrigins.length > 0
-  ? [...new Set([...configuredOrigins, ...platformOrigins])]
-  : isProduction
-    ? platformOrigins
-    : ['http://127.0.0.1:5173', 'http://localhost:5173']
+const isProduction = config.production
+const allowedOrigins = config.allowedOrigins
 
-function isNetlifySiteOrigin(origin) {
-  if (!process.env.SITE_NAME || !origin) return false
-  try {
-    const hostname = new URL(origin).hostname
-    return hostname === `${process.env.SITE_NAME}.netlify.app` || hostname.endsWith(`--${process.env.SITE_NAME}.netlify.app`)
-  } catch {
-    return false
-  }
-}
-
+app.use((req, res, next) => {
+  req.requestId = crypto.randomUUID()
+  res.setHeader('X-Request-ID', req.requestId)
+  next()
+})
 app.use(helmet({
   contentSecurityPolicy: {
     directives: { frameSrc: ["'self'", 'blob:'] }
@@ -54,11 +40,13 @@ app.use(helmet({
 }))
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin) || isNetlifySiteOrigin(origin)) {
+    if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true)
       return
     }
-    callback(new Error('CORS origin not allowed'))
+    const error = new Error('CORS origin not allowed')
+    error.status = 403
+    callback(error)
   },
   credentials: true
 }))
@@ -68,19 +56,19 @@ app.use((req, res, next) => {
   if (process.env.NODE_ENV === 'test') return next()
   const startedAt = Date.now()
   res.on('finish', () => {
-    console.info(`${req.method} ${req.path} ${res.statusCode} ${Date.now() - startedAt}ms`)
+    console.info(JSON.stringify({ event: 'api.request', requestId: req.requestId, method: req.method, route: req.route?.path || 'unmatched', status: res.statusCode, durationMs: Date.now() - startedAt }))
   })
   next()
 })
 
-app.get('/api/health', async (_req, res) => {
+app.get('/api/health', async (req, res) => {
   try {
     await checkDatabaseConnection()
     res.json({ status: 'ok', database: 'ready' })
   } catch (error) {
-    logServerError('api.health_failed', error, { route: '/api/health' })
-    res.status(500).json({
-      message: 'Internal server error',
+    logServerError('api.health_failed', error, { route: '/api/health', requestId: req.requestId })
+    res.status(503).json({
+      status: 'unavailable', database: 'unavailable',
       diagnosticCode: databaseDiagnosticCode(error)
     })
   }
@@ -120,11 +108,12 @@ app.use((error, _req, res, _next) => {
   if (status >= 500) {
     logServerError('api.unexpected_error', error, {
       method: _req.method,
-      path: _req.path,
-      status
+      route: _req.route?.path || 'unmatched',
+      status,
+      requestId: _req.requestId
     })
   }
-  const message = status < 500 || error.expose || !isProduction
+  const message = status < 500
     ? error.message
     : 'Internal server error'
   res.status(status).json({ message: message ?? 'Internal server error' })

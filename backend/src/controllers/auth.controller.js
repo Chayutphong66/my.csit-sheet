@@ -1,14 +1,14 @@
 import * as authService from '../services/auth.service.js'
 import { logServerError } from '../services/safeLogger.service.js'
+import { config } from '../config/environment.js'
 
-const refreshMaxAge = Number(process.env.REFRESH_TOKEN_TTL_DAYS || 7) * 24 * 60 * 60 * 1000
+const refreshMaxAge = config.refreshDays * 24 * 60 * 60 * 1000
 
 function refreshCookieOptions() {
-  const isProduction = process.env.NODE_ENV === 'production' || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT)
   return {
     httpOnly: true,
-    sameSite: isProduction ? 'strict' : 'lax',
-    secure: isProduction,
+    sameSite: config.cookieSameSite,
+    secure: config.cookieSecure,
     maxAge: refreshMaxAge,
     path: '/api/auth'
   }
@@ -20,7 +20,7 @@ export async function login(req, res, next) {
     res.cookie('refreshToken', data.refreshToken, refreshCookieOptions())
     res.json({ user: data.user, accessToken: data.accessToken })
   } catch (error) {
-    if ((error.status ?? 500) >= 500) logServerError('auth.login_failed', error, { operation: 'login' })
+    if ((error.status ?? 500) >= 500) logServerError('auth.login_failed', error, { operation: 'login', requestId: req.requestId })
     next(error)
   }
 }
@@ -29,7 +29,7 @@ export async function register(req, res, next) {
   try {
     res.status(201).json(await authService.register(req.body))
   } catch (error) {
-    if ((error.status ?? 500) >= 500) logServerError('auth.registration_failed', error, { operation: 'register' })
+    if ((error.status ?? 500) >= 500) logServerError('auth.registration_failed', error, { operation: 'register', requestId: req.requestId })
     next(error)
   }
 }
@@ -46,6 +46,7 @@ export async function refresh(req, res) {
 
 export async function logout(req, res) {
   await authService.logout(req.cookies.refreshToken)
-  res.clearCookie('refreshToken', { path: '/api/auth' })
+  const { maxAge: _maxAge, ...options } = refreshCookieOptions()
+  res.clearCookie('refreshToken', options)
   res.status(204).end()
 }

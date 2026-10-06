@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { db, withTransaction } from '../data/databaseClient.js'
+import { db, lockDocument, withTransaction, lockAssetHash } from '../data/databaseClient.js'
 import { readFileBytes } from '../services/fileStorage.service.js'
 import { getOrCreateFileAsset } from './fileAsset.repository.js'
 
@@ -104,6 +104,8 @@ export async function submitRevision({ documentType, documentId, submittedBy, re
   if (duplicate) throw validationError('ไฟล์นี้มีอยู่ในระบบแล้ว กรุณาเลือกไฟล์ที่มีการแก้ไขจริง', 409)
   const id = crypto.randomUUID()
   await withTransaction(async () => {
+    await lockAssetHash(sha256)
+    if (await db.prepare('SELECT id FROM document_versions WHERE sha256=? LIMIT 1').get(sha256)) throw validationError('This file already exists; submit genuinely revised content', 409)
     const asset = await getOrCreateFileAsset({ binaryHash: sha256, contentHash, originalFilename: originalFileName, mimeType, fileData })
     await db.prepare(`INSERT INTO document_versions(
       id,document_type,document_id,version_number,submitted_by,revision_type,change_summary,
@@ -144,6 +146,7 @@ export async function approveRevision(id, adminId) {
   await withTransaction(async () => {
     const version = await findDocumentVersion(id)
     if (!version) throw validationError('Revision not found', 404)
+    await lockDocument(version.documentType, version.documentId)
     if (version.status !== 'PENDING') throw validationError('Revision has already been processed', 409)
     const document = await findCanonicalDocument(version.documentType, version.documentId)
     if (!document) throw validationError('Document not found', 404)
@@ -174,6 +177,7 @@ export async function restoreDocumentVersion(documentType, documentId, versionId
   if (!source || source.documentType !== type || source.documentId !== documentId || source.status !== 'APPROVED') throw validationError('Approved source version not found', 404)
   const id = crypto.randomUUID()
   await withTransaction(async () => {
+    await lockDocument(type, documentId)
     const next = Number((await db.prepare(`SELECT COALESCE(MAX(version_number),0)+1 value FROM document_versions WHERE document_type=? AND document_id=? AND status='APPROVED'`).get(type, documentId)).value)
     await db.prepare(`INSERT INTO document_versions(
       id,document_type,document_id,version_number,submitted_by,revision_type,change_summary,

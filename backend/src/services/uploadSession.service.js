@@ -1,34 +1,34 @@
 import crypto from 'node:crypto'
-import { getStore } from '@netlify/blobs'
-import { databaseDialect } from '../data/databaseClient.js'
+import { config } from '../config/environment.js'
+import { storage } from './storageAdapter.js'
 import { MAX_FILE_BYTES } from './uploadValidation.service.js'
 
 export const MAX_CHUNK_BYTES = 2 * 1024 * 1024
 const SESSION_TTL_MS = 60 * 60 * 1000
-const STORE_NAME = 'csit-sheet-upload-chunks'
 const localEntries = new Map()
 
-function blobStore() { return getStore({ name: STORE_NAME, consistency: 'strong' }) }
 function manifestKey(id) { return `sessions/${id}/manifest` }
 function chunkKey(id, index) { return `sessions/${id}/chunks/${index}` }
 
 async function setValue(key, value, options = {}) {
-  if (databaseDialect === 'postgres') {
-    if (!Buffer.isBuffer(value)) return blobStore().setJSON(key, value, options)
-    const bytes = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)
-    return blobStore().set(key, bytes, options)
+  if (config.storageDriver !== 'database') {
+    const bytes = Buffer.isBuffer(value) ? value : Buffer.from(JSON.stringify(value))
+    return storage.save(key, bytes, options)
   }
   localEntries.set(key, Buffer.isBuffer(value) ? Buffer.from(value) : structuredClone(value))
 }
 
 async function getValue(key, type = 'json') {
-  if (databaseDialect === 'postgres') return blobStore().get(key, { type })
+  if (config.storageDriver !== 'database') {
+    const value = await storage.read(key)
+    return value && (type === 'json' ? JSON.parse(value.toString()) : value)
+  }
   const value = localEntries.get(key)
   return Buffer.isBuffer(value) ? Buffer.from(value) : value ? structuredClone(value) : null
 }
 
 async function deleteValue(key) {
-  if (databaseDialect === 'postgres') await blobStore().delete(key)
+  if (config.storageDriver !== 'database') await storage.delete(key)
   else localEntries.delete(key)
 }
 
@@ -71,7 +71,7 @@ export async function readUploadSession({ id, userId }) {
   const manifest = await ownedManifest(id, userId)
   const chunks = []
   for (let index = 0; index < manifest.totalChunks; index += 1) {
-    const value = await getValue(chunkKey(id, index), databaseDialect === 'postgres' ? 'arrayBuffer' : 'buffer')
+    const value = await getValue(chunkKey(id, index), 'buffer')
     if (!value) throw sessionError(`Upload chunk ${index} is missing`, 409)
     chunks.push(Buffer.from(value))
   }

@@ -1,107 +1,66 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { logServerError } from '../services/safeLogger.service.js'
+import { config } from '../config/environment.js'
+import { toPostgresQuery } from './postgresSql.js'
+import { verifySchema } from './schemaRequirements.js'
 
 const transactionContext = new AsyncLocalStorage()
-const isNetlifyRuntime = process.env.NETLIFY === 'true' || Boolean(
-  process.env.NETLIFY_DB_URL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT
-)
+const isPostgres = config.databaseDriver === 'postgres'
 
 let rootExecutor
 let localDatabase
-let netlifyDatabase
+let pool
+let sqliteTransactionTail = Promise.resolve()
+let initialization
 const localDatabaseModule = './database.js'
 
-const initialization = (async () => {
-  if (isNetlifyRuntime) {
-    const { getDatabase } = await import('@netlify/database')
-    netlifyDatabase = getDatabase()
-    rootExecutor = {
-      async query(sql, parameters = []) {
-        const query = toPostgresQuery(sql, parameters)
-        const result = await netlifyDatabase.pool.query(query.sql, query.parameters)
-        return { ...result, rows: restoreAliases(result.rows, sql) }
+function initialize() {
+  initialization ||= (async () => {
+    if (isPostgres) {
+      const { default: pg } = await import('pg')
+      pool = new pg.Pool({ connectionString: config.databaseUrl, max: config.poolMax, connectionTimeoutMillis: 10000, idleTimeoutMillis: 30000 })
+      pool.on('error', error => logServerError('database.pool_error', error, { dialect: 'postgres' }))
+      rootExecutor = {
+        async query(sql, parameters = []) {
+          const query = toPostgresQuery(sql, parameters)
+          const result = await pool.query(query.sql, query.parameters)
+          return { ...result, rows: restoreAliases(result.rows, sql) }
+        }
+      }
+    } else {
+      // SQLite is local-only and loaded on the first explicit database operation.
+      const local = await import(localDatabaseModule)
+      localDatabase = local.db
+      rootExecutor = {
+        async query(sql, parameters = [], mode = 'all') {
+          const statement = localDatabase.prepare(sql)
+          if (mode === 'run') {
+            const result = statement.run(...parameters)
+            return { rows: [], rowCount: Number(result.changes), changes: Number(result.changes) }
+          }
+          if (mode === 'get') {
+            const row = statement.get(...parameters)
+            return { rows: row ? [row] : [], rowCount: row ? 1 : 0 }
+          }
+          const rows = statement.all(...parameters)
+          return { rows, rowCount: rows.length }
+        }
       }
     }
-  } else {
-    // Keep the local-only node:sqlite implementation out of Netlify's Function bundle.
-    // Local development imports this module at runtime; Netlify always takes the branch above.
-    const local = await import(localDatabaseModule)
-    localDatabase = local.db
-    rootExecutor = {
-      async query(sql, parameters = [], mode = 'all') {
-        const statement = localDatabase.prepare(sql)
-        if (mode === 'run') {
-          const result = statement.run(...parameters)
-          return { rows: [], rowCount: Number(result.changes), changes: Number(result.changes) }
-        }
-        if (mode === 'get') {
-          const row = statement.get(...parameters)
-          return { rows: row ? [row] : [], rowCount: row ? 1 : 0 }
-        }
-        const rows = statement.all(...parameters)
-        return { rows, rowCount: rows.length }
-      }
-    }
-  }
-})().catch((error) => {
-  logServerError('database.initialization_failed', error, {
-    dialect: isNetlifyRuntime ? 'postgres' : 'sqlite',
-    netlifyRuntime: isNetlifyRuntime
+  })().catch((error) => {
+    logServerError('database.initialization_failed', error, {
+      dialect: config.databaseDriver
+    })
+    throw error
   })
-  throw error
-})
+  return initialization
+}
 
 async function currentExecutor() {
-  await initialization
-  return transactionContext.getStore() || rootExecutor
-}
-
-function toPostgresSql(source) {
-  let parameterIndex = 0
-  let inString = false
-  let sql = ''
-  for (let index = 0; index < source.length; index += 1) {
-    const character = source[index]
-    if (character === "'") {
-      sql += character
-      if (inString && source[index + 1] === "'") {
-        sql += source[index + 1]
-        index += 1
-      } else {
-        inString = !inString
-      }
-    } else if (character === '?' && !inString) {
-      parameterIndex += 1
-      sql += `$${parameterIndex}`
-    } else {
-      sql += character
-    }
-  }
-  sql = sql.replace(/INSERT\s+OR\s+IGNORE\s+INTO/gi, 'INSERT INTO')
-  if (/^\s*INSERT\s+/i.test(sql) && /INSERT\s+OR\s+IGNORE/i.test(source) && !/ON\s+CONFLICT/i.test(sql)) {
-    sql = `${sql.trim().replace(/;$/, '')} ON CONFLICT DO NOTHING`
-  }
-  return sql
-    .replace(/\s+COLLATE\s+NOCASE/gi, '')
-    .replace(/\bLIKE\b/gi, 'ILIKE')
-    .replace(/group_concat\(([^,]+),\s*('[^']*')\)/gi, 'string_agg($1, $2)')
-    .replace(/\bCURRENT_TIMESTAMP\b/gi, 'CURRENT_TIMESTAMP::text')
-}
-
-function toPostgresQuery(source, parameters) {
-  if (parameters.length !== 1 || !parameters[0] || Array.isArray(parameters[0]) || typeof parameters[0] !== 'object') {
-    return { sql: toPostgresSql(source), parameters }
-  }
-  const values = []
-  const indexes = new Map()
-  const sql = source.replace(/@([A-Za-z_][A-Za-z0-9_]*)/g, (_match, name) => {
-    if (!indexes.has(name)) {
-      indexes.set(name, values.length + 1)
-      values.push(parameters[0][name])
-    }
-    return `$${indexes.get(name)}`
-  })
-  return { sql: toPostgresSql(sql), parameters: values }
+  await initialize()
+  const active = transactionContext.getStore()
+  if (!active && !isPostgres) await sqliteTransactionTail
+  return active || rootExecutor
 }
 
 function restoreAliases(rows, sourceSql) {
@@ -137,20 +96,27 @@ function prepare(sql) {
 export const db = { prepare }
 
 export async function withTransaction(callback) {
-  await initialization
-  if (!isNetlifyRuntime) {
-    localDatabase.exec('BEGIN')
+  await initialize()
+  if (transactionContext.getStore()) return callback()
+  if (!isPostgres) {
+    const previous = sqliteTransactionTail
+    let release
+    sqliteTransactionTail = new Promise(resolve => { release = resolve })
+    await previous
+    let began = false
     try {
+      localDatabase.exec('BEGIN')
+      began = true
       const result = await transactionContext.run(rootExecutor, callback)
       localDatabase.exec('COMMIT')
       return result
     } catch (error) {
-      localDatabase.exec('ROLLBACK')
+      if (began) localDatabase.exec('ROLLBACK')
       throw error
-    }
+    } finally { release() }
   }
 
-  const client = await netlifyDatabase.pool.connect()
+  const client = await pool.connect()
   const executor = {
     async query(sql, parameters = []) {
       const query = toPostgresQuery(sql, parameters)
@@ -164,7 +130,7 @@ export async function withTransaction(callback) {
     await client.query('COMMIT')
     return result
   } catch (error) {
-    await client.query('ROLLBACK')
+    try { await client.query('ROLLBACK') } catch (rollbackError) { logServerError('database.rollback_failed', rollbackError) }
     throw error
   } finally {
     client.release()
@@ -174,26 +140,40 @@ export async function withTransaction(callback) {
 export async function checkDatabaseConnection() {
   try {
     await db.prepare('SELECT 1 AS ready').get()
-    if (isNetlifyRuntime) {
-      const rows = await db.prepare(`
-        SELECT table_name FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name IN ('users', 'refresh_tokens')
-      `).all()
-      const tables = new Set(rows.map((row) => row.table_name))
-      const missing = ['users', 'refresh_tokens'].filter((table) => !tables.has(table))
-      if (missing.length) {
-        const error = new Error(`Required database tables are missing: ${missing.join(', ')}`)
-        error.code = 'SCHEMA_NOT_READY'
-        throw error
-      }
+    if (isPostgres) {
+      const rows = await db.prepare("SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public'").all()
+      verifySchema(rows, config.storageDriver !== 'netlify')
     }
   } catch (error) {
     logServerError('database.health_check_failed', error, {
-      dialect: isNetlifyRuntime ? 'postgres' : 'sqlite',
-      netlifyRuntime: isNetlifyRuntime
+      dialect: config.databaseDriver
     })
     throw error
   }
 }
 
-export const databaseDialect = isNetlifyRuntime ? 'postgres' : 'sqlite'
+export const databaseDialect = config.databaseDriver
+
+export async function closeDatabase() {
+  if (!initialization) return
+  await initialization
+  if (pool) await pool.end()
+  else localDatabase.close()
+}
+
+export async function lockDocument(type, id) {
+  if (!transactionContext.getStore()) throw new Error('Document locking requires a transaction')
+  const table = type === 'Lecture' ? 'lectures' : type === 'Sheet' ? 'sheets' : null
+  if (!table) throw new Error('Invalid document type')
+  if (isPostgres) await db.prepare(`SELECT id FROM ${table} WHERE id = ? FOR UPDATE`).get(id)
+}
+
+export async function lockUploadRequest(id) {
+  if (!transactionContext.getStore()) throw new Error('Upload locking requires a transaction')
+  if (isPostgres) await db.prepare('SELECT id FROM upload_requests WHERE id=? FOR UPDATE').get(id)
+}
+
+export async function lockAssetHash(hash) {
+  if (!transactionContext.getStore()) throw new Error('Asset locking requires a transaction')
+  if (isPostgres) await db.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?,0))').get(hash)
+}

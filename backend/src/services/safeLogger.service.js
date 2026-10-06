@@ -2,6 +2,9 @@ const SECRET_ENV_NAMES = [
   'JWT_SECRET',
   'NETLIFY_DB_URL',
   'DATABASE_URL',
+  'SUPABASE_SECRET_KEY',
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'TEST_DATABASE_URL',
   'NETLIFY_AUTH_TOKEN',
   'NETLIFY_BLOBS_CONTEXT'
 ]
@@ -15,6 +18,8 @@ function redact(value) {
   return text
     .replace(/\b(?:postgres(?:ql)?):\/\/[^\s]+/gi, '[REDACTED_DATABASE_URL]')
     .replace(/\b(?:bearer\s+)[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED_TOKEN]')
+    .replace(/scrypt\$[^\s"'\\]+/g, '[REDACTED_PASSWORD_HASH]')
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[REDACTED_JWT]')
     .replace(/\b(password|secret|token|authorization|connectionString)\s*[=:]\s*[^\s,;]+/gi, '$1=[REDACTED]')
 }
 
@@ -33,6 +38,7 @@ export function safeErrorDetails(error) {
 }
 
 export function databaseDiagnosticCode(error) {
+  if (error?.code === 'CONFIGURATION_ERROR') return 'DATABASE_CONFIGURATION_MISSING'
   if (error?.name === 'MissingDatabaseConnectionError') return 'DATABASE_CONFIGURATION_MISSING'
   if (error?.code === 'SCHEMA_NOT_READY' || error?.code === '42P01') return 'DATABASE_SCHEMA_NOT_READY'
   if (error?.code === '28P01' || error?.code === '28000') return 'DATABASE_AUTHENTICATION_FAILED'

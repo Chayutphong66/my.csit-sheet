@@ -1,4 +1,4 @@
-import { apiClient, request, requestWithChunkedFile } from '@/services/api'
+import { apiClient, request, requestWithChunkedFile, useNetlifyFiles } from '@/services/api'
 
 // User-side document submission / upload-request flow.
 export const uploadApi = {
@@ -11,10 +11,10 @@ export const uploadApi = {
   uploadRequest: (id) => request({ url: `/upload-requests/${id}` }),
   downloadUploadRequestFile: (id) =>
     apiClient
-      .get(import.meta.env.PROD ? `/blob/request/${encodeURIComponent(id)}/download` : `/upload-requests/${id}/file`, { responseType: 'blob' })
+      .get(useNetlifyFiles ? `/blob/request/${encodeURIComponent(id)}/download` : `/upload-requests/${id}/file`, { responseType: 'blob' })
       .then((response) => response.data),
   downloadPublishedFile: (request) => {
-    const path = import.meta.env.PROD
+    const path = useNetlifyFiles
       ? `/blob/${request.documentType.toLowerCase()}/${encodeURIComponent(request.publishedId)}/download`
       : request.documentType === 'Lecture'
         ? `/lectures/${request.publishedId}/download`

@@ -2,7 +2,7 @@
 
 CSIT Sheet is a Thai-first Vue 3 and Express academic knowledge-sharing platform. The user navigation is หน้าหลัก, เอกสารการสอน, ชีทสรุป, อัปโหลด, and โปรไฟล์. Authenticated users browse Course → Academic Year → Semester, search documents and contributors from one place, open privacy-safe public profiles, preview/download documents, submit material, track requests, and see contributor impact. Public cards show clickable contributor identity, qualified Views/Downloads, and Helpful feedback. Admins work from an action-needed dashboard and focused approval workspace with exact/content/possible duplicate evidence.
 
-Local development uses SQLite. Production uses Netlify Database for relational records and site-wide Netlify Blobs for one canonical object per server-calculated SHA-256; upload requests and public Lecture/Sheet file records keep safe references to that object.
+Local development uses SQLite with persistent FileAsset bytes. Phase 1 code preparation supports a future provider-neutral Express backend on Railway with PostgreSQL and Supabase Storage; it has not been deployed or connected to production. The existing Netlify Functions/Database/Blobs path is retained as transitional code. See [PHASE1_PREPARATION.md](PHASE1_PREPARATION.md) for configuration, migration safety, tests and remaining verification.
 
 Upload metadata uses controlled CS/IT programs, Buddhist Era periods, synchronized Course Code/Name autocomplete, verified multi-select teachers, and an optional 1,000-character description. Course autocomplete is ranked locally and filtered by Program + year + semester; the Upload page never calls Reg8 or an AI service. Admins can approve a teacher suggestion globally, approve it only for one document, or reject it independently from document moderation.
 
@@ -25,6 +25,8 @@ npm run db:seed
 npm run dev
 ```
 
+The backend does not automatically load the copied `.env`. Inject its variables into the shell or run `node --env-file=.env backend/src/server.js` from the repository root. Never use a production database for local tests.
+
 The frontend runs at `http://127.0.0.1:5173`; Vite proxies `/api` to `http://127.0.0.1:8080`.
 
 Development seed accounts:
@@ -37,7 +39,8 @@ Production startup never inserts demo accounts. Run `db:seed` only for local/dem
 ## Commands
 
 ```bash
-npm run db:migrate        # apply idempotent schema migrations/backfill
+npm run db:migrate        # selected-driver migration; explicit environment required
+npm run db:transfer -- --source=<reviewed-sqlite-copy> # read-only dry-run by default
 npm run db:seed           # add development seed data when tables are empty
 npm run db:import-courses # import backend/data/registrar/DataCourse{CS,IT}.xlsx idempotently
 npm run db:storage-report # integrity and FileAsset/reference counts
@@ -75,7 +78,7 @@ The server calculates binary SHA-256 and compares both PENDING requests and APPR
 - `CONTENT_DUPLICATE`: binary differs but a high-confidence content hash matches.
 - `POSSIBLE_DUPLICATE`: Course/year/semester/type/normalized title match only; admin must decide.
 
-Canonical bytes live once in SQLite `file_assets` during local development and once in a site-wide Netlify Blob store in production. Relational rows keep references, publication does not copy bytes, and cleanup removes only zero-reference assets.
+Canonical local bytes live in SQLite `file_assets`. Future production objects use the Supabase storage adapter; the existing Netlify Blob adapter remains transitional. Relational rows keep references and publication does not copy bytes. Cleanup removes only zero-reference DB assets and retains external objects to avoid concurrent shared-object deletion.
 
 The upload form performs the same duplicate checks as a read-only preflight. Exact matches are stopped before a request is created; metadata/content matches show the existing canonical document and let the user open it, submit a revision, or explicitly continue with a new document.
 
@@ -87,27 +90,31 @@ Authenticated users can propose a revision with a change type, summary, and file
 
 Approved non-initial revisions award the same 20 contribution points as an accepted original submission. Restores and duplicate bytes do not award points. Contributor profiles expose accepted revision activity, program/cohort metadata, and document-level contribution counts without exposing private account fields.
 
-## Production deployment
+## Deployment preparation (Phase 1 only)
 
-The supported deployment is one Netlify site configured by `netlify.toml`: Vue is published from `frontend/dist`, Express runs as a Netlify Function, relational data uses Netlify Database, and file bytes use site-wide Netlify Blobs. See [DEPLOYMENT.md](DEPLOYMENT.md) for the environment, first-admin bootstrap, verification, Free-plan guardrail, and rollback runbook.
+Future architecture is Vue on Netlify -> Express on Railway -> Supabase PostgreSQL
+and Storage. Configure `DATABASE_DRIVER=postgres` and a private `DATABASE_URL`;
+production rejects SQLite instead of falling back. PostgreSQL migrations are
+canonical in `backend/migrations/postgres/`, run explicitly by `npm run db:migrate`.
+API startup checks readiness without applying production migrations.
 
-| Variable | Required | Purpose |
-| --- | --- | --- |
-| `NODE_ENV` | yes | Set to `production`. |
-| `JWT_SECRET` | yes | Long random signing secret; never commit it. |
-| `BOOTSTRAP_ADMIN_EMAIL` | temporarily | Matching registration creates the first admin; remove afterward. |
-| `NETLIFY_DB_URL` | platform managed | Injected by Netlify Database; never expose or commit it. |
-| `ALLOWED_ORIGINS` | no | Extra HTTPS origins; Netlify origins are automatic. |
-| `ACCESS_TOKEN_TTL` | no | Access JWT duration, default `15m`. |
-| `REFRESH_TOKEN_TTL_DAYS` | no | Refresh session duration, default `7`. |
-| `VITE_API_URL` | when frontend is separate | API base URL at frontend build time. |
+`VITE_API_URL` is the only public frontend API base URL. For future cross-site
+sessions configure exact HTTPS `ALLOWED_ORIGINS`, `COOKIE_SAME_SITE=none` and
+the backend-only `JWT_SECRET`; refresh cookies remain HttpOnly + Secure.
+Supabase storage configuration stays unused/unconfigured in local SQLite mode.
+No backend secret belongs in a `VITE_*` variable.
 
-`GET /api/health` checks the active database and returns `{ "status": "ok", "database": "ready" }`.
+See [PHASE1_PREPARATION.md](PHASE1_PREPARATION.md) for the complete environment
+checklist, canonical migrations, safe dry-run transfer and remaining risks.
+[DEPLOYMENT.md](DEPLOYMENT.md) is the legacy Netlify runbook, not the future Railway
+deployment instructions. Do not create resources, migrate real data, change the
+current Netlify API URL or deploy until Phase 2 is approved.
 
-Never run `db:seed` in production; it is exclusively for local demo data. Import registrar workbooks through the Admin preview/confirm workflow after the first deployment.
+`GET /api/health` returns 200 with `status: ok, database: ready`, or safe 503
+dependency/schema categories without credentials, SQL or stack traces.
 
 ## Security and limits
 
 Passwords use salted scrypt hashes. JWT/rotated hashed refresh tokens, role and ownership checks, Helmet, restricted CORS, login throttling, prepared SQL, MIME/signature/size/filename validation, `nosniff`, and production-safe errors remain enabled. Pending/rejected files are never public interaction targets.
 
-The 20 MB policy is preserved with authenticated 2 MB upload chunks so requests stay below Netlify Function's buffered request limit. Production file bytes are stored in site-wide Blobs. Full admin material deletion is not currently included.
+The 20 MB policy and authenticated 2 MB upload chunks are preserved. Future production files belong in Supabase Storage, never the Railway filesystem. Full admin material deletion is not currently included.

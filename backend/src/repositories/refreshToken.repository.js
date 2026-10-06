@@ -26,7 +26,7 @@ export async function findRefreshSessionByHash(tokenHash) {
 }
 
 export async function revokeRefreshSessionByHash(tokenHash) {
-  await db.prepare(`
+  return db.prepare(`
     UPDATE refresh_tokens
     SET revoked_at = CURRENT_TIMESTAMP
     WHERE token_hash = ? AND revoked_at IS NULL

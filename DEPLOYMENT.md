@@ -1,4 +1,9 @@
-# Netlify production deployment
+# Legacy Netlify production deployment (transitional)
+
+This runbook describes the existing site, not the future Railway/Supabase architecture.
+Phase 1 is local code preparation only: **do not deploy these changes yet**.
+See [PHASE1_PREPARATION.md](PHASE1_PREPARATION.md) for the current configuration,
+canonical backend migrations, verification limits and required owner approval.
 
 Production is Netlify-only: the Vue build is static, the existing Express app runs through `netlify/functions/api.js`, Netlify Database stores relational records, and site-wide Netlify Blobs stores canonical file bytes and temporary upload chunks.
 
