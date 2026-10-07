@@ -200,7 +200,7 @@ test('Supabase adapter remains lazy, validates keys and uses server-only authent
   assert.equal(await missingObject.read('sha256/missing'), null)
   assert.equal(await missingObject.exists('sha256/missing'), false)
   const diagnosed = createStorageAdapter({ storageDriver: 'supabase', storageUrl: 'https://storage.example.invalid', storageBucket: 'documents', storageKey: 'sb_secret_fixture-server-only-key' }, async () => new Response(JSON.stringify({ code: 'AccessDenied', message: 'Permission denied' }), { status: 403, headers: { 'content-type': 'application/json' } }))
-  await assert.rejects(diagnosed.read('sha256/test'), error => error.status === 503 && error.upstreamStatus === 403 && error.storageCode === 'AccessDenied' && error.upstreamMessage === 'Permission denied' && error.operation === 'read')
+  await assert.rejects(diagnosed.read('sha256/test'), error => error.status === 503 && error.upstreamStatus === 403 && error.storageCode === 'AccessDenied' && error.upstreamMessage === 'Permission denied' && error.operation === 'read' && error.storageProvider === 'supabase' && error.bucketName === 'documents' && error.objectKeyShape === 'sha256/test')
   const absentBucket = createStorageAdapter({ storageDriver: 'supabase', storageUrl: 'https://storage.example.invalid', storageBucket: 'documents', storageKey: 'fixture-server-only-key' }, async () => new Response('Not found', { status: 404 }))
   await assert.rejects(absentBucket.save('sha256/test', Buffer.from('fixture')), error => error.status === 503)
 })

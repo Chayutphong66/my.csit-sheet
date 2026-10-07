@@ -28,6 +28,11 @@ function safeCode(error) {
   return /^[A-Za-z0-9_-]{1,40}$/.test(code) ? code : undefined
 }
 
+function safeStorageValue(value, pattern, fallback = 'unknown') {
+  const text = redact(value ?? '')
+  return pattern.test(text) ? text : fallback
+}
+
 export function safeErrorDetails(error) {
   return {
     name: redact(error?.name || 'Error'),
@@ -44,6 +49,42 @@ export function databaseDiagnosticCode(error) {
   if (error?.code === '28P01' || error?.code === '28000') return 'DATABASE_AUTHENTICATION_FAILED'
   if (['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', '57P01'].includes(error?.code)) return 'DATABASE_CONNECTION_FAILED'
   return 'DATABASE_CHECK_FAILED'
+}
+
+export function storageConfigurationDetails(configuration) {
+  let validHttpsUrl = false
+  try {
+    const url = new URL(configuration.storageUrl)
+    validHttpsUrl = url.protocol === 'https:' && Boolean(url.hostname)
+  } catch { validHttpsUrl = false }
+  return {
+    storageDriver: configuration.storageDriver || 'unknown',
+    supabaseUrlConfigured: Boolean(configuration.storageUrl),
+    supabaseUrlValidHttps: validHttpsUrl,
+    supabaseSecretConfigured: Boolean(configuration.storageKey),
+    supabaseSecretCanonical: String(configuration.storageKey || '').startsWith('sb_secret_'),
+    bucketConfigured: Boolean(configuration.storageBucket),
+    bucketExpected: configuration.storageBucket === 'documents'
+  }
+}
+
+export function logStorageConfiguration(configuration) {
+  console.info(JSON.stringify({ event: 'storage.configuration', ...storageConfigurationDetails(configuration) }))
+}
+
+export function logStorageFailure(error, { requestId } = {}) {
+  console.error(JSON.stringify({
+    event: 'storage.upstream_failed',
+    requestId: safeStorageValue(requestId, /^[A-Za-z0-9_-]{1,100}$/),
+    operation: safeStorageValue(error?.operation, /^(upload|read|delete)$/),
+    storageProvider: safeStorageValue(error?.storageProvider, /^(supabase|netlify|database)$/),
+    bucketName: safeStorageValue(error?.bucketName, /^[a-z0-9][a-z0-9._-]{0,62}$/),
+    sanitizedObjectKeyShape: safeStorageValue(error?.objectKeyShape, /^[A-Za-z0-9_<>./-]{1,200}$/),
+    upstreamHttpStatus: Number.isInteger(error?.upstreamStatus) ? error.upstreamStatus : null,
+    upstreamErrorCode: safeStorageValue(error?.storageCode, /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/),
+    safeUpstreamMessage: redact(String(error?.upstreamMessage || 'Unavailable')).slice(0, 200),
+    errorClass: safeStorageValue(error?.name, /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/)
+  }))
 }
 
 export function logServerError(event, error, context = {}) {

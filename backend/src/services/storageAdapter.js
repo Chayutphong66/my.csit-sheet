@@ -20,6 +20,21 @@ function safeUpstreamMessage(value, secret) {
     .replace(/https?:\/\/\S+/gi, '[REDACTED_URL]')
     .replace(/\b(?:bearer\s+)[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED_TOKEN]')
     .replace(/\b(?:sb_secret_|eyJ)[A-Za-z0-9._~+/=-]+/g, '[REDACTED_TOKEN]')
+    .replace(/\b[a-f0-9]{64}\b/gi, '<sha256>')
+}
+
+function safeBucketName(value) {
+  const bucket = String(value ?? '')
+  return /^[a-z0-9][a-z0-9._-]{0,62}$/.test(bucket) ? bucket : '[invalid-bucket]'
+}
+
+function objectKeyShape(value) {
+  return String(value ?? '').split('/').map(part => {
+    if (/^[a-f0-9]{64}$/i.test(part)) return '<sha256>'
+    if (/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(part)) return '<uuid>'
+    if (/^\d+$/.test(part)) return '<index>'
+    return /^[a-zA-Z][a-zA-Z0-9_.-]{0,31}$/.test(part) ? part : '<segment>'
+  }).join('/')
 }
 
 async function storageFailure(response, method, secret) {
@@ -83,6 +98,9 @@ export function createStorageAdapter(configuration = config, request = fetch) {
       error.storageCode = failure?.storageCode
       error.upstreamMessage = failure?.upstreamMessage
       error.operation = failure?.operation
+      error.storageProvider = 'supabase'
+      error.bucketName = safeBucketName(configuration.storageBucket)
+      error.objectKeyShape = objectKeyShape(key)
       throw error
     }
     return method === 'GET' ? Buffer.from(await response.arrayBuffer()) : true

@@ -13,7 +13,7 @@ import contributorRoutes from './routes/contributor.routes.js'
 import { curriculumRouter, suggestionRouter } from './routes/academic.routes.js'
 import { checkDatabaseConnection } from './data/databaseClient.js'
 import uploadSessionRoutes from './routes/uploadSession.routes.js'
-import { databaseDiagnosticCode, logServerError } from './services/safeLogger.service.js'
+import { databaseDiagnosticCode, logServerError, logStorageFailure } from './services/safeLogger.service.js'
 import { config } from './config/environment.js'
 import { mountProductionFrontend } from './services/frontendHosting.js'
 import crypto from 'node:crypto'
@@ -96,12 +96,15 @@ app.use((req, res) => {
 app.use((error, _req, res, _next) => {
   const status = error.status ?? 500
   if (status >= 500) {
-    logServerError('api.unexpected_error', error, {
-      method: _req.method,
-      route: _req.route?.path || 'unmatched',
-      status,
-      requestId: _req.requestId
-    })
+    if (error.code === 'STORAGE_UNAVAILABLE') logStorageFailure(error, { requestId: _req.requestId })
+    else {
+      logServerError('api.unexpected_error', error, {
+        method: _req.method,
+        route: _req.route?.path || 'unmatched',
+        status,
+        requestId: _req.requestId
+      })
+    }
   }
   const message = status < 500
     ? error.message

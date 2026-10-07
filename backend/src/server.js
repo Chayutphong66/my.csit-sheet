@@ -1,9 +1,10 @@
-import { logServerError } from './services/safeLogger.service.js'
+import { logServerError, logStorageConfiguration } from './services/safeLogger.service.js'
 import { attachGracefulShutdown } from './services/serverLifecycle.js'
 
 let closeDatabase
 try {
   const { config } = await import('./config/environment.js')
+  logStorageConfiguration(config)
   const { default: app } = await import('./app.js')
   const database = await import('./data/databaseClient.js')
   closeDatabase = database.closeDatabase
