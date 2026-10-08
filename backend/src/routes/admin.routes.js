@@ -7,6 +7,8 @@ const router = Router()
 
 router.use(requireAuth, requireRole('ADMIN'))
 router.get('/users', adminController.getUsers)
+router.get('/profile-change-requests', adminController.getProfileChangeRequests)
+router.patch('/profile-change-requests/:id', validateIdParam, adminController.decideProfileChangeRequest)
 router.get('/upload-requests', adminController.getUploadRequests)
 router.get('/upload-requests/:id/file', validateIdParam, adminController.getUploadRequestFile)
 router.post('/upload-requests', adminController.createUploadRequestAsAdmin)

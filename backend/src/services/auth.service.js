@@ -2,8 +2,10 @@ import crypto from 'node:crypto'
 import {
   createUser,
   countAdmins,
+  findUserByEmail,
   findUserByEmailOrUsername,
   findUserById as findUserRecordById,
+  markEmailVerified,
   updateUserPassword
 } from '../repositories/user.repository.js'
 import { hashPassword, isPasswordHash, verifyPassword } from './password.service.js'
@@ -13,9 +15,13 @@ import {
   consumeRefreshToken,
   revokeRefreshToken
 } from './token.service.js'
+import { revokeRefreshSessionsByUserId } from '../repositories/refreshToken.repository.js'
+import { consumeAccountToken, issueAccountToken } from '../repositories/accountToken.repository.js'
+import { sendEmail } from './email.service.js'
+import { config } from '../config/environment.js'
 
 function publicUser(user) {
-  const { password, ...safeUser } = user
+  const { password, avatarStorageKey, ...safeUser } = user
   return safeUser
 }
 
@@ -24,6 +30,12 @@ export async function login({ usernameOrEmail, password }) {
   if (!user || !verifyPassword(password, user.password)) {
     const error = new Error('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง')
     error.status = 401
+    throw error
+  }
+
+  if (config.emailVerificationEnforced && !user.isVerified) {
+    const error = new Error('Please verify your email before signing in')
+    error.status = 403
     throw error
   }
 
@@ -57,13 +69,59 @@ export async function register({ username, displayName, email, password, program
     password: hashPassword(password),
     role,
     avatarUrl: '',
-    isVerified: true,
+    isVerified: false,
     provider: 'local',
     program,
     cohort
   })
 
-  return { message: 'สมัครสมาชิกสำเร็จ กรุณาเข้าสู่ระบบ' }
+  const delivery = await sendVerification(await findUserByEmail(email))
+  return {
+    message: delivery.status === 'SENT'
+      ? 'Account created. Please check your email to verify your address.'
+      : delivery.status === 'MOCKED'
+        ? 'Account created. Email delivery was simulated in this environment.'
+        : 'Account created, but the verification email could not be delivered. Please retry later.',
+    emailDelivery: delivery.status
+  }
+}
+
+async function sendVerification(user) {
+  if (!user || user.isVerified) return { status: 'NOT_REQUIRED' }
+  const issued = await issueAccountToken(user.id, 'EMAIL_VERIFICATION', config.verificationTokenMinutes)
+  return sendEmail({ userId: user.id, to: user.email, template: 'emailVerification', data: { displayName: user.displayName, url: `${config.appBaseUrl}/verify-email?token=${encodeURIComponent(issued.token)}` } })
+}
+
+export async function verifyEmail(token) {
+  const user = await consumeAccountToken(token, 'EMAIL_VERIFICATION', markEmailVerified)
+  if (!user) { const error = new Error('Verification link is invalid, expired, or already used'); error.status = 400; throw error }
+  return { message: 'Email verified successfully. You can now sign in.' }
+}
+
+export async function resendVerification(email) {
+  const user = await findUserByEmail(email)
+  if (user && !user.isVerified) await sendVerification(user)
+  return { message: 'If the account exists and still needs verification, an email will be sent.' }
+}
+
+export async function forgotPassword(email) {
+  const user = await findUserByEmail(email)
+  if (user) {
+    const issued = await issueAccountToken(user.id, 'PASSWORD_RESET', config.passwordResetTokenMinutes)
+    await sendEmail({ userId: user.id, to: user.email, template: 'passwordReset', data: { displayName: user.displayName, minutes: config.passwordResetTokenMinutes, url: `${config.appBaseUrl}/reset-password?token=${encodeURIComponent(issued.token)}` } })
+  }
+  return { message: 'If an account matches that email, password reset instructions will be sent.' }
+}
+
+export async function resetPassword({ token, password }) {
+  const user = await consumeAccountToken(token, 'PASSWORD_RESET', async userId => {
+    await updateUserPassword(userId, hashPassword(password))
+    await revokeRefreshSessionsByUserId(userId)
+    return findUserRecordById(userId)
+  })
+  if (!user) { const error = new Error('Reset link is invalid, expired, or already used'); error.status = 400; throw error }
+  await sendEmail({ userId: user.id, to: user.email, template: 'passwordChanged', data: { displayName: user.displayName } })
+  return { message: 'Password updated. Please sign in with your new password.' }
 }
 
 export async function refresh(refreshToken) {

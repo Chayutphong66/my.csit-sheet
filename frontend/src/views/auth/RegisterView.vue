@@ -8,10 +8,11 @@ import { PROGRAM_OPTIONS, cohortOptions } from '@/services/communityIdentity'
 const auth = useAuthStore()
 const router = useRouter()
 const message = ref('')
-const form = reactive({ displayName: '', username: '', email: '', password: '', program: '', cohort: '' })
+const form = reactive({ displayName: '', username: '', email: '', password: '', confirmPassword: '', program: '', cohort: '' })
 const cohorts = cohortOptions()
 
 async function submit() {
+  if (form.password !== form.confirmPassword) { auth.setError?.('Passwords do not match'); return }
   const data = await auth.register(form)
   message.value = data.message
   setTimeout(() => router.push('/login'), 700)
@@ -38,6 +39,11 @@ async function submit() {
         <input v-model="form.password" type="password" required minlength="8" autocomplete="new-password" placeholder="อย่างน้อย 8 ตัวอักษร" />
       </label>
       <label>
+        ยืนยันรหัสผ่าน
+        <input v-model="form.confirmPassword" type="password" required minlength="8" autocomplete="new-password" placeholder="กรอกรหัสผ่านอีกครั้ง" />
+        <small v-if="form.confirmPassword && form.password !== form.confirmPassword" class="form-error" role="alert">Passwords do not match</small>
+      </label>
+      <label>
         สาขา
         <select v-model="form.program" required>
           <option value="" disabled>เลือกสาขา</option>
@@ -52,7 +58,7 @@ async function submit() {
         </select>
       </label>
       <p v-if="message" class="form-success">{{ message }}</p>
-      <button class="button button--primary button--wide" :disabled="auth.loading">
+      <button class="button button--primary button--wide" :disabled="auth.loading || form.password !== form.confirmPassword">
         {{ auth.loading ? 'กำลังสร้างบัญชี…' : 'สร้างบัญชี' }}
       </button>
       <RouterLink to="/login" class="text-link">มีบัญชีอยู่แล้ว</RouterLink>

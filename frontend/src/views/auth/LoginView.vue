@@ -23,6 +23,7 @@ async function submit() {
         อีเมลหรือ username
         <input v-model="form.usernameOrEmail" autocomplete="username" required placeholder="user@csitsheet.app" />
       </label>
+      <RouterLink to="/forgot-password" class="text-link">ลืมรหัสผ่าน? · Forgot password</RouterLink>
       <label>
         รหัสผ่าน
         <input v-model="form.password" type="password" autocomplete="current-password" required placeholder="กรอกรหัสผ่าน" />

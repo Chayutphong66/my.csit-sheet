@@ -3,6 +3,9 @@ import { useAuthStore } from '@/stores/authStore'
 import LandingView from '@/views/LandingView.vue'
 import LoginView from '@/views/auth/LoginView.vue'
 import RegisterView from '@/views/auth/RegisterView.vue'
+import ForgotPasswordView from '@/views/auth/ForgotPasswordView.vue'
+import ResetPasswordView from '@/views/auth/ResetPasswordView.vue'
+import VerifyEmailView from '@/views/auth/VerifyEmailView.vue'
 import UserDashboardView from '@/views/user/UserDashboardView.vue'
 import AdminDashboardView from '@/views/admin/AdminDashboardView.vue'
 import UserHomePanel from '@/components/user/UserHomePanel.vue'
@@ -19,11 +22,16 @@ import DocumentCatalogPanel from '@/components/user/DocumentCatalogPanel.vue'
 import UserUploadPanel from '@/components/user/UserUploadPanel.vue'
 import PublicProfilePanel from '@/components/user/PublicProfilePanel.vue'
 import DocumentDetailPanel from '@/components/user/DocumentDetailPanel.vue'
+import ProfileSettingsView from '@/views/user/ProfileSettingsView.vue'
+import FollowingFeedView from '@/views/user/FollowingFeedView.vue'
 
 const routes = [
   { path: '/', name: 'home', component: LandingView },
   { path: '/login', name: 'login', component: LoginView },
   { path: '/register', name: 'register', component: RegisterView },
+  { path: '/forgot-password', name: 'forgot-password', component: ForgotPasswordView },
+  { path: '/reset-password', name: 'reset-password', component: ResetPasswordView },
+  { path: '/verify-email', name: 'verify-email', component: VerifyEmailView },
   {
     path: '/dashboard',
     component: UserDashboardView,
@@ -31,6 +39,7 @@ const routes = [
     children: [
       { path: '', name: 'dashboard', redirect: { name: 'user-home' } },
       { path: 'home', name: 'user-home', component: UserHomePanel },
+      { path: 'following', name: 'following-feed', component: FollowingFeedView },
       { path: 'search', name: 'document-search', component: DocumentSearchPanel },
       { path: 'documents/:type/:id', name: 'document-detail', component: DocumentDetailPanel },
       { path: 'courses/:courseId', name: 'course-detail', component: CourseDetailPanel },
@@ -45,6 +54,7 @@ const routes = [
       { path: 'requests', redirect: { name: 'user-upload' } },
       { path: 'notifications', redirect: { name: 'user-profile' } },
       { path: 'profile', name: 'user-profile', component: UserProfilePanel },
+      { path: 'settings', name: 'profile-settings', component: ProfileSettingsView },
       { path: 'users/:username', name: 'public-profile', component: PublicProfilePanel }
     ]
   },

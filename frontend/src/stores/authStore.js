@@ -50,6 +50,8 @@ export function useAuthStore() {
     state.user = null
   }
 
+  function setError(message) { state.error = message }
+
   return {
     get ready() {
       return state.ready
@@ -66,6 +68,7 @@ export function useAuthStore() {
     login,
     register,
     refresh,
-    logout
+    logout,
+    setError
   }
 }

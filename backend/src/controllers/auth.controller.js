@@ -50,3 +50,8 @@ export async function logout(req, res) {
   res.clearCookie('refreshToken', options)
   res.status(204).end()
 }
+
+export async function verifyEmail(req, res, next) { try { res.json(await authService.verifyEmail(req.query.token)) } catch (error) { next(error) } }
+export async function resendVerification(req, res, next) { try { res.json(await authService.resendVerification(req.body.email)) } catch (error) { next(error) } }
+export async function forgotPassword(req, res, next) { try { res.json(await authService.forgotPassword(req.body.email)) } catch (error) { next(error) } }
+export async function resetPassword(req, res, next) { try { res.json(await authService.resetPassword(req.body)) } catch (error) { next(error) } }

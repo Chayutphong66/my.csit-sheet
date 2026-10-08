@@ -1,12 +1,11 @@
 <script setup>
-import { ref, watch } from 'vue'
-import { PROGRAM_OPTIONS, cohortOptions, programName } from '@/services/communityIdentity'
+import { ref } from 'vue'
+import { programName } from '@/services/communityIdentity'
+import { contributorApi } from '@/services/contributor.service'
 const props = defineProps({ profile: { type: Object, required: true }, saving: Boolean })
-defineEmits(['save'])
-const editing = ref(false)
-const form = ref({ displayName: props.profile.displayName, program: props.profile.program || '', cohort: props.profile.cohort || '' })
-const cohorts = cohortOptions()
-watch(() => props.profile, value => { form.value = { displayName: value.displayName, program: value.program || '', cohort: value.cohort || '' }; editing.value = false })
+defineEmits(['follow'])
+const connections = ref(null); const connectionKind = ref('')
+async function showConnections(kind) { connectionKind.value = kind; connections.value = await contributorApi[kind](props.profile.username) }
 </script>
 
 <template>
@@ -18,18 +17,15 @@ watch(() => props.profile, value => { form.value = { displayName: value.displayN
       <span>{{ profile.program ? `${programName(profile.program)} (${profile.program})` : 'ยังไม่ได้ระบุสาขา' }}</span>
       <span>{{ profile.cohort ? `รุ่น ${profile.cohort}` : 'ยังไม่ได้ระบุรุ่น' }}</span>
     </p>
-    <button v-if="profile.isOwner && !editing" class="button button--ghost" @click="editing = true">Edit profile</button>
-    <form v-if="editing" class="form-grid" @submit.prevent="$emit('save', form)">
-      <label>Display name<input v-model="form.displayName" required maxlength="100" /></label>
-      <label>สาขา<select v-model="form.program"><option value="">ยังไม่ได้ระบุสาขา</option><option v-for="program in PROGRAM_OPTIONS" :key="program.value" :value="program.value">{{ program.label }}</option></select></label>
-      <label>รุ่น<select v-model="form.cohort"><option value="">ยังไม่ได้ระบุรุ่น</option><option v-for="cohort in cohorts" :key="cohort" :value="cohort">รุ่น {{ cohort }}</option></select></label>
-      <div class="table-actions"><button class="button button--primary" :disabled="saving">Save</button><button class="button button--ghost" type="button" :disabled="saving" @click="editing = false">Cancel</button></div>
-    </form>
+    <p v-if="profile.bio">{{ profile.bio }}</p>
+    <RouterLink v-if="profile.isOwner" class="button button--ghost" to="/dashboard/settings">Edit profile</RouterLink>
+    <button v-else class="button" :class="profile.followedByMe ? 'button--ghost' : 'button--primary'" :disabled="saving" @click="$emit('follow', !profile.followedByMe)">{{ profile.followedByMe ? 'Following' : 'Follow' }}</button>
+    <p class="profile-follow-counts"><button class="text-link" @click="showConnections('followers')"><strong>{{ profile.followersCount || 0 }}</strong> followers</button> · <button class="text-link" @click="showConnections('following')"><strong>{{ profile.followingCount || 0 }}</strong> following</button></p>
+    <section v-if="connections" class="profile-connections"><div class="section-heading"><strong>{{ connectionKind }}</strong><button class="icon-button" aria-label="Close" @click="connections=null">×</button></div><p v-if="!connections.length" class="material-meta">No {{ connectionKind }} yet.</p><RouterLink v-for="person in connections" :key="person.username" :to="`/dashboard/users/${person.username}`">{{ person.displayName }} · @{{ person.username }}</RouterLink></section>
     <p class="level-pill">{{ profile.contributorLevel }} · {{ profile.contributionScore }} คะแนน</p>
     <div class="badge-list"><span v-for="badge in profile.badges" :key="badge" class="recognition-badge">★ {{ badge }}</span></div>
     <p class="material-meta">{{ profile.lectureCount || 0 }} Lecture · {{ profile.sheetCount || 0 }} Sheet</p>
     <p class="material-meta">{{ profile.acceptedRevisions || 0 }} revisions ที่ได้รับอนุมัติ · {{ profile.contributions || 0 }} contributions</p>
     <p class="material-meta">{{ profile.totalViews || 0 }} ครั้งที่ดู · {{ profile.totalDownloads || 0 }} ดาวน์โหลด · {{ profile.helpful || 0 }} มีประโยชน์</p>
-    <section v-if="profile.privateAccount" class="private-account-card" aria-label="ข้อมูลบัญชีส่วนตัว"><div><span>อีเมลส่วนตัว</span><strong>{{ profile.privateAccount.email }}</strong></div><div><span>สิทธิ์การใช้งาน</span><strong>{{ profile.privateAccount.role }}</strong></div><p>ข้อมูลส่วนนี้เห็นได้เฉพาะคุณ</p></section>
   </aside>
 </template>

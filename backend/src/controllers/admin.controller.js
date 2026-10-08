@@ -27,6 +27,9 @@ import {
   rejectRevision, restoreDocumentVersion
 } from '../repositories/documentVersion.repository.js'
 import { discardUploadSession, resolveUploadBody } from '../services/uploadSession.service.js'
+import { decideProfileChangeRequest as decideProfileRequest, listProfileChangeRequests, notifyFollowersOfDocument } from '../repositories/community.repository.js'
+import { findUserById } from '../repositories/user.repository.js'
+import { sendEmail } from '../services/email.service.js'
 
 const COURSE_IMPORT_MAX_BYTES = 20 * 1024 * 1024
 
@@ -98,6 +101,28 @@ export async function getUsers(_req, res) {
   res.json(await listUsers())
 }
 
+export async function getProfileChangeRequests(req, res, next) {
+  try {
+    const status = String(req.query.status || '').toUpperCase()
+    if (status && !['PENDING','APPROVED','REJECTED'].includes(status)) return res.status(400).json({ message: 'Invalid status' })
+    res.json(await listProfileChangeRequests({ status }))
+  } catch (error) { next(error) }
+}
+
+export async function decideProfileChangeRequest(req, res, next) {
+  try {
+    const status = String(req.body.status || '').toUpperCase()
+    if (!['APPROVED','REJECTED'].includes(status)) return res.status(400).json({ message: 'Status must be APPROVED or REJECTED' })
+    const reason = String(req.body.reason || '').trim()
+    if (status === 'REJECTED' && !reason) return res.status(400).json({ message: 'Rejection reason is required' })
+    const request = await decideProfileRequest({ id: req.params.id, reviewerId: req.user.id, status, reason })
+    if (!request) return res.status(404).json({ message: 'Request not found' })
+    const user = await findUserById(request.user_id)
+    await sendEmail({ userId: user.id, to: user.email, template: 'profileChangeDecision', data: { category: request.category, requestedValue: request.requested_value, status, reason } })
+    res.json(request)
+  } catch (error) { next(error) }
+}
+
 export async function createUploadRequestAsAdmin(req, res, next) {
   let sessionId = null
   try {
@@ -133,6 +158,7 @@ export async function createUploadRequestAsAdmin(req, res, next) {
       throw error
     }
     const published = await publishUploadRequest(request.id, { adminId: req.user.id })
+    await notifyFollowersOfDocument({ uploaderId: req.user.id, document: published })
 
     await createNotification({
       userId: req.user.id,
@@ -196,6 +222,7 @@ export async function approveUploadRequest(req, res, next) {
     await assignCategoryIfPresent(request.id, req.body)
 
     const published = await publishUploadRequest(request.id, { adminId: req.user.id })
+    await notifyFollowersOfDocument({ uploaderId: request.userId, document: published })
 
     await createNotification({
       userId: request.userId,

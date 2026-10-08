@@ -42,6 +42,10 @@ const contributorAggregate = `
   SELECT users.id, users.username,
     COALESCE(NULLIF(users.display_name, ''), users.username) AS display_name,
     users.avatar_url,
+    users.bio,
+    users.profile_public,
+    users.show_program,
+    users.show_cohort,
     users.program_code,
     users.cohort,
     COUNT(published.id) AS published_count,
@@ -75,8 +79,10 @@ function mapContributor(row) {
     username: row.username,
     displayName: row.display_name,
     avatarUrl: row.avatar_url || '',
-    program: row.program_code || '',
-    cohort: row.cohort || '',
+    bio: row.bio || '',
+    profilePublic: Boolean(row.profile_public),
+    program: row.show_program ? row.program_code || '' : '',
+    cohort: row.show_cohort ? row.cohort || '' : '',
     publishedCount: Number(row.published_count || 0),
     lectureCount: Number(row.lecture_count || 0),
     sheetCount: Number(row.sheet_count || 0),
@@ -96,10 +102,10 @@ export async function searchContributors(query, limit = 20) {
   const term = `%${String(query ?? '').trim().toLowerCase()}%`
   return (await db.prepare(`
     ${contributorAggregate}
-    WHERE users.role = 'USER' AND (
+    WHERE users.role = 'USER' AND users.profile_public = 1 AND (
       lower(users.username) LIKE ? OR lower(COALESCE(NULLIF(users.display_name, ''), users.username)) LIKE ?
     )
-    GROUP BY users.id, users.username, users.display_name, users.avatar_url, users.program_code, users.cohort
+    GROUP BY users.id, users.username, users.display_name, users.avatar_url, users.bio, users.profile_public, users.show_program, users.show_cohort, users.program_code, users.cohort
     ORDER BY published_count DESC, users.username
     LIMIT ?
   `).all(term, term, Math.min(Math.max(Number(limit) || 20, 1), 20))).map(mapContributor)
@@ -109,7 +115,7 @@ export async function findContributorByUsername(username) {
   return mapContributor(await db.prepare(`
     ${contributorAggregate}
     WHERE users.role = 'USER' AND lower(users.username) = lower(?)
-    GROUP BY users.id, users.username, users.display_name, users.avatar_url, users.program_code, users.cohort
+    GROUP BY users.id, users.username, users.display_name, users.avatar_url, users.bio, users.profile_public, users.show_program, users.show_cohort, users.program_code, users.cohort
     LIMIT 1
   `).get(String(username ?? '').trim()))
 }

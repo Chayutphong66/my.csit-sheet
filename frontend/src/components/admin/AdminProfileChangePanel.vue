@@ -1,0 +1,9 @@
+<script setup>
+import { onMounted, ref } from 'vue'
+import { adminApi } from '@/services/admin.service'
+const requests=ref([]),busy=ref(''),error=ref(''),status=ref('PENDING')
+async function load(){try{requests.value=await adminApi.profileChangeRequests(status.value==='ALL'?'':status.value)}catch(caught){error.value=caught.message}}
+async function decide(item,decision){let reason='';if(decision==='REJECTED'){reason=window.prompt('Rejection reason')||'';if(!reason)return}if(!window.confirm(`${decision} this ${item.category.toLowerCase()} change request?`))return;busy.value=item.id;try{await adminApi.decideProfileChangeRequest(item.id,decision,reason);await load()}catch(caught){error.value=caught.message}finally{busy.value=''}}
+onMounted(load)
+</script>
+<template><section class="content-section admin-profile-changes"><div class="section-heading"><div><p class="eyebrow">PROFILE GOVERNANCE</p><h2>Program & Cohort Requests</h2></div><select v-model="status" class="compact-select" @change="load"><option v-for="value in ['PENDING','APPROVED','REJECTED','ALL']" :key="value">{{ value }}</option></select></div><p v-if="error" class="form-error">{{ error }}</p><div v-if="!requests.length" class="empty-state">No profile change requests.</div><article v-for="item in requests" :key="item.id" class="settings-request"><div><strong>@{{ item.username }} · {{ item.category }}</strong><p>{{ item.current_value }} → {{ item.requested_value }}</p><p>{{ item.reason }}</p><small v-if="item.decision_reason">Decision: {{ item.decision_reason }}</small></div><span class="type-chip">{{ item.status }}</span><div v-if="item.status==='PENDING'" class="table-actions"><button class="button button--danger" :disabled="busy" @click="decide(item,'REJECTED')">Reject</button><button class="button button--primary" :disabled="busy" @click="decide(item,'APPROVED')">Approve</button></div></article></section></template>

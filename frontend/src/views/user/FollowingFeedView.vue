@@ -1,0 +1,8 @@
+<script setup>
+import { onMounted, ref } from 'vue'
+import { contributorApi } from '@/services/contributor.service'
+const items=ref([]),error=ref(''),loading=ref(true),more=ref(true)
+async function load(){loading.value=true;try{const data=await contributorApi.feed(items.value.length);items.value.push(...data.items);more.value=data.items.length===data.limit}catch(caught){error.value=caught.message}finally{loading.value=false}}
+onMounted(load)
+</script>
+<template><section class="page-panel"><header class="page-header"><div><p class="eyebrow">YOUR COMMUNITY</p><h1>Following Feed</h1><p>เอกสารสาธารณะที่เผยแพร่โดยผู้ที่คุณติดตาม</p></div></header><p v-if="error" class="form-error" role="alert">{{ error }}</p><div v-if="!loading&&!items.length" class="empty-state"><h2>ยังไม่มีเอกสารในฟีด</h2><p>ติดตามผู้แบ่งปันจากหน้าโปรไฟล์เพื่อดูเอกสารใหม่ที่นี่</p><RouterLink class="button button--primary" to="/dashboard/search">ค้นหาผู้แบ่งปัน</RouterLink></div><div class="material-list"><article v-for="item in items" :key="`${item.documentType}:${item.id}`" class="material-card"><div><span class="type-chip">{{ item.documentType }}</span><h2><RouterLink :to="`/dashboard/documents/${item.documentType.toLowerCase()}/${item.id}`">{{ item.title }}</RouterLink></h2><p>{{ item.course.code }} · {{ item.course.name }}</p><RouterLink :to="`/dashboard/users/${item.uploader.username}`">{{ item.uploader.displayName }} · @{{ item.uploader.username }}</RouterLink></div><time :datetime="item.createdAt">{{ new Date(item.createdAt).toLocaleDateString('th-TH') }}</time></article></div><button v-if="more" class="button button--ghost" :disabled="loading" @click="load">{{ loading?'กำลังโหลด…':'โหลดเพิ่มเติม' }}</button></section></template>

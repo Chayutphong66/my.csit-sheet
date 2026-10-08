@@ -11,6 +11,8 @@
     "dev:watch": "node --watch src/server.js",
     "db:migrate": "node src/data/migrate.js",
     "db:transfer": "node src/data/transferSqliteCli.js",
+    "db:audit-reference": "node src/data/referenceDataAuditCli.js",
+    "db:apply-reference": "node src/data/referenceDataApplyCli.js",
     "db:seed": "node src/data/seed.js",
     "db:import-courses": "node src/data/importCoursesCli.js",
     "db:cleanup-files": "node src/data/cleanupFileAssets.js",
@@ -26,6 +28,7 @@
     "express": "^5.2.1",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^7.0.10",
     "pg": "^8.16.3",
     "read-excel-file": "^6.0.1",
     "serverless-http": "^4.0.0"

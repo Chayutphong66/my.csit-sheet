@@ -1,5 +1,5 @@
 export const requiredSchema = {
-  users: ['id', 'username', 'display_name', 'email', 'password', 'role', 'program_code', 'cohort'],
+  users: ['id', 'username', 'display_name', 'email', 'password', 'role', 'program_code', 'cohort', 'email_verified_at', 'display_name_changed_at', 'bio', 'avatar_storage_key', 'profile_public', 'show_program', 'show_cohort'],
   programs: ['id', 'code'], courses: ['id', 'code', 'name'], instructors: ['id', 'name'],
   program_courses: ['program_id', 'course_id'],
   course_offerings: ['id', 'course_id', 'academic_year', 'semester'],
@@ -13,7 +13,12 @@ export const requiredSchema = {
   upload_request_teachers: ['upload_request_id', 'teacher_id'], document_teachers: ['document_type', 'document_id', 'teacher_id'],
   document_stars: ['user_id', 'document_type', 'document_id'],
   document_interactions: ['user_id', 'document_type', 'document_id', 'interaction_type'],
-  document_helpful_votes: ['user_id', 'document_type', 'document_id'], course_imports: ['id']
+  document_helpful_votes: ['user_id', 'document_type', 'document_id'], course_imports: ['id'],
+  account_tokens: ['id', 'user_id', 'purpose', 'token_hash', 'expires_at', 'consumed_at'],
+  user_follows: ['follower_id', 'followed_id'],
+  profile_change_requests: ['id', 'user_id', 'category', 'status', 'reviewer_id'],
+  notification_preferences: ['user_id', 'new_follower', 'followed_documents', 'document_activity', 'activity_email'],
+  email_deliveries: ['id', 'template', 'recipient', 'status']
 }
 
 export function verifySchema(rows, externalReferences = true) {

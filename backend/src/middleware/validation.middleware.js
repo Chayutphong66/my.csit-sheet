@@ -35,6 +35,9 @@ export function validateRegister(req, _res, next) {
       : requireString(req.body.displayName, 'displayName', { min: 2, max: 80 })
     const email = requireString(req.body?.email, 'email', { max: 255 }).toLowerCase()
     const password = requireString(req.body?.password, 'password', { min: 8, max: 1024 })
+    const confirmPassword = req.body?.confirmPassword === undefined
+      ? password
+      : requireString(req.body.confirmPassword, 'confirmPassword', { min: 8, max: 1024 })
     const program = normalizeProgram(req.body?.program)
     const cohort = normalizeCohort(req.body?.cohort)
 
@@ -44,12 +47,31 @@ export function validateRegister(req, _res, next) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw validationError('email is invalid')
     }
+    if (password !== confirmPassword) throw validationError('Passwords do not match')
 
     req.body = { username, displayName, email, password, program, cohort }
     next()
   } catch (error) {
     next(error)
   }
+}
+
+export function validateEmailBody(req, _res, next) {
+  try {
+    const email = requireString(req.body?.email, 'email', { max: 255 }).toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw validationError('email is invalid')
+    req.body = { email }; next()
+  } catch (error) { next(error) }
+}
+
+export function validateResetPassword(req, _res, next) {
+  try {
+    const token = requireString(req.body?.token, 'token', { min: 20, max: 512 })
+    const password = requireString(req.body?.password, 'password', { min: 8, max: 1024 })
+    const confirmPassword = requireString(req.body?.confirmPassword, 'confirmPassword', { min: 8, max: 1024 })
+    if (password !== confirmPassword) throw validationError('Passwords do not match')
+    req.body = { token, password }; next()
+  } catch (error) { next(error) }
 }
 
 export function validateRefreshCookie(req, _res, next) {

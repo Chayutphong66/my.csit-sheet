@@ -41,18 +41,12 @@ describe('document-focused Profile', () => {
     expect(wrapper.get('[aria-current="page"]').text()).toContain('Documents')
     wrapper.unmount()
   })
-  it('edits community identity with controlled Program and Cohort selects', async () => {
-    mocks.edit.mockResolvedValue({})
+  it('routes profile editing to dedicated settings without exposing account fields', async () => {
     const { wrapper } = await setup()
-    await wrapper.findAll('button').find(button => button.text() === 'Edit profile').trigger('click')
-    const selects = wrapper.findAll('aside select')
-    expect(selects).toHaveLength(2)
-    expect(selects[0].findAll('option').map(option => option.attributes('value'))).toEqual(['', 'CS', 'IT'])
-    await selects[0].setValue('CS')
-    await selects[1].setValue('66')
-    await wrapper.get('aside form').trigger('submit')
-    await flushPromises()
-    expect(mocks.edit).toHaveBeenCalledWith(expect.objectContaining({ program: 'CS', cohort: '66' }))
+    const edit = wrapper.findAll('a').find(link => link.text() === 'Edit profile')
+    expect(edit.attributes('href')).toBe('/dashboard/settings')
+    expect(wrapper.findAll('aside select')).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('อีเมลส่วนตัว')
     wrapper.unmount()
   })
   it('rolls back a failed optimistic Star and shows the action error', async () => {

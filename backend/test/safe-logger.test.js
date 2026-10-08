@@ -5,10 +5,12 @@ import { databaseDiagnosticCode, logStorageFailure, safeErrorDetails, storageCon
 test('safe error details redact connection strings, bearer tokens and configured secrets', () => {
   const previous = process.env.NETLIFY_DB_URL
   const previousSupabaseSecret = process.env.SUPABASE_SECRET_KEY
+  const previousSmtpPass = process.env.SMTP_PASS
   process.env.NETLIFY_DB_URL = 'postgresql://private-user:private-password@example.invalid/database'
   process.env.SUPABASE_SECRET_KEY = 'sb_secret_private-fixture'
+  process.env.SMTP_PASS = 'smtp-private-fixture'
   try {
-    const error = new Error(`Connection failed for ${process.env.NETLIFY_DB_URL}; key=${process.env.SUPABASE_SECRET_KEY}; authorization=Bearer-private`)
+    const error = new Error(`Connection failed for ${process.env.NETLIFY_DB_URL}; key=${process.env.SUPABASE_SECRET_KEY}; smtp=${process.env.SMTP_PASS}; authorization=Bearer-private`)
     error.code = 'ECONNREFUSED'
     const details = safeErrorDetails(error)
     const serialized = JSON.stringify(details)
@@ -20,6 +22,8 @@ test('safe error details redact connection strings, bearer tokens and configured
     else process.env.NETLIFY_DB_URL = previous
     if (previousSupabaseSecret === undefined) delete process.env.SUPABASE_SECRET_KEY
     else process.env.SUPABASE_SECRET_KEY = previousSupabaseSecret
+    if (previousSmtpPass === undefined) delete process.env.SMTP_PASS
+    else process.env.SMTP_PASS = previousSmtpPass
   }
 })
 

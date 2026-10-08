@@ -24,11 +24,22 @@ describe('Register community identity', () => {
     await inputs[1].setValue('student99')
     await inputs[2].setValue('student99@example.com')
     await inputs[3].setValue('CorrectHorse123')
+    await inputs[4].setValue('CorrectHorse123')
     await selects[0].setValue('IT')
     await selects[1].setValue('69')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(mocks.register).toHaveBeenCalledWith(expect.objectContaining({ program: 'IT', cohort: '69' }))
+  })
+
+  it('blocks submission when password confirmation differs', async () => {
+    const wrapper = mount(RegisterView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+    const inputs = wrapper.findAll('input')
+    await inputs[3].setValue('CorrectHorse123')
+    await inputs[4].setValue('DifferentHorse123')
+    expect(wrapper.get('button').attributes('disabled')).toBeDefined()
+    await wrapper.get('form').trigger('submit')
+    expect(mocks.register).not.toHaveBeenCalled()
   })
 
   it('adds cohort 70 without source changes when the Gregorian year reaches 2027', () => {

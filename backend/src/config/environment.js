@@ -12,6 +12,12 @@ function positiveInteger(value, fallback, name, maximum = 1000000) {
   return number
 }
 
+function booleanValue(value, fallback, name) {
+  const normalized = String(value ?? fallback).trim().toLowerCase()
+  if (!['true', 'false'].includes(normalized)) throw configurationError(`${name} must be true or false`)
+  return normalized === 'true'
+}
+
 function railwayPublicOrigin(value) {
   const domain = value?.trim().toLowerCase()
   if (!domain) return ''
@@ -62,6 +68,13 @@ export function loadConfiguration(env = process.env) {
       if (url.origin !== origin || !['http:', 'https:'].includes(url.protocol) || (production && url.protocol !== 'https:')) throw new Error()
     } catch { throw configurationError('ALLOWED_ORIGINS must contain explicit HTTP(S) origins; production requires HTTPS') }
   }
+  const appBaseUrl = env.APP_BASE_URL || (production ? origins[0] || '' : 'http://127.0.0.1:5173')
+  if (appBaseUrl) {
+    try {
+      const url = new URL(appBaseUrl)
+      if (url.origin !== appBaseUrl || (production && url.protocol !== 'https:')) throw new Error()
+    } catch { throw configurationError('APP_BASE_URL must be an explicit origin; production requires HTTPS') }
+  }
   return Object.freeze({
     production, databaseDriver, databaseUrl: env.DATABASE_URL,
     databasePath: env.DATABASE_PATH, poolMax: positiveInteger(env.DATABASE_POOL_MAX, 5, 'DATABASE_POOL_MAX', 50),
@@ -74,7 +87,15 @@ export function loadConfiguration(env = process.env) {
     jwtSecret: env.JWT_SECRET?.trim(), accessTokenTtl: env.ACCESS_TOKEN_TTL || '15m',
     refreshDays: positiveInteger(env.REFRESH_TOKEN_TTL_DAYS, 7, 'REFRESH_TOKEN_TTL_DAYS', 3650),
     cookieSameSite, cookieSecure, allowedOrigins: origins,
-    projectRoot: path.basename(process.cwd()).toLowerCase() === 'backend' ? path.resolve(process.cwd(), '..') : process.cwd()
+    projectRoot: path.basename(process.cwd()).toLowerCase() === 'backend' ? path.resolve(process.cwd(), '..') : process.cwd(),
+    appBaseUrl,
+    smtpHost: env.SMTP_HOST?.trim(), smtpPort: positiveInteger(env.SMTP_PORT, 465, 'SMTP_PORT', 65535),
+    smtpSecure: booleanValue(env.SMTP_SECURE, true, 'SMTP_SECURE'),
+    smtpUser: env.SMTP_USER?.trim(), smtpPass: env.SMTP_PASS,
+    mailFrom: env.MAIL_FROM?.trim() || 'CSIT Sheet <comintsheet.csit@gmail.com>',
+    emailVerificationEnforced: booleanValue(env.EMAIL_VERIFICATION_ENFORCED, false, 'EMAIL_VERIFICATION_ENFORCED'),
+    verificationTokenMinutes: positiveInteger(env.EMAIL_VERIFICATION_TOKEN_MINUTES, 1440, 'EMAIL_VERIFICATION_TOKEN_MINUTES', 10080),
+    passwordResetTokenMinutes: positiveInteger(env.PASSWORD_RESET_TOKEN_MINUTES, 30, 'PASSWORD_RESET_TOKEN_MINUTES', 120)
   })
 }
 
@@ -83,4 +104,8 @@ export const config = loadConfiguration()
 export function validateAuthentication(configuration = config) {
   if (configuration.production && !configuration.jwtSecret) throw configurationError('JWT_SECRET must be configured in production')
   if (!/^(?:\d+(?:\.\d+)?\s*(?:ms|s|m|h|d|w|y)|\d+)$/.test(configuration.accessTokenTtl)) throw configurationError('ACCESS_TOKEN_TTL must be a valid duration')
+  if (configuration.emailVerificationEnforced && !(configuration.smtpHost && configuration.smtpUser && configuration.smtpPass)) {
+    throw configurationError('EMAIL_VERIFICATION_ENFORCED requires complete SMTP configuration')
+  }
+  if (configuration.smtpHost && !configuration.appBaseUrl) throw configurationError('SMTP configuration requires APP_BASE_URL')
 }

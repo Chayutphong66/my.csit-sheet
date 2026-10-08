@@ -39,6 +39,8 @@ test('configuration is explicit, bounded, provider neutral and fails closed', ()
   assert.throws(() => loadConfiguration({ STORAGE_DRIVER: 'supabase', SUPABASE_URL: 'https://fixture.supabase.co' }), /SUPABASE_SECRET_KEY/)
   assert.throws(() => loadConfiguration({ STORAGE_DRIVER: 'supabase', SUPABASE_URL: 'https://fixture.supabase.co', SUPABASE_SECRET_KEY: 'fixture' }), /SUPABASE_STORAGE_BUCKET/)
   assert.throws(() => loadConfiguration({ DATABASE_POOL_MAX: '51' }), /DATABASE_POOL_MAX/)
+  assert.throws(() => loadConfiguration({ SMTP_SECURE: 'yes' }), /SMTP_SECURE must be true or false/)
+  assert.throws(() => loadConfiguration({ EMAIL_VERIFICATION_ENFORCED: 'yes' }), /EMAIL_VERIFICATION_ENFORCED must be true or false/)
   assert.throws(() => loadConfiguration({ ALLOWED_ORIGINS: '*' }), /explicit HTTP/)
   assert.throws(() => loadConfiguration({
     NODE_ENV: 'production',
@@ -52,6 +54,15 @@ test('configuration is explicit, bounded, provider neutral and fails closed', ()
   assert.throws(() => loadConfiguration({ COOKIE_SAME_SITE: 'none' }), /HTTPS/)
   assert.equal(loadConfiguration({ SUPABASE_SECRET_KEY: 'current-secret', SUPABASE_SERVICE_ROLE_KEY: 'legacy-secret' }).storageKey, 'current-secret')
   assert.equal(loadConfiguration({ SUPABASE_SERVICE_ROLE_KEY: 'legacy-secret' }).storageKey, 'legacy-secret')
+  const gmail = loadConfiguration({
+    SMTP_HOST: 'smtp.gmail.com', SMTP_PORT: '465', SMTP_SECURE: 'true',
+    SMTP_USER: 'sender@example.com', SMTP_PASS: 'fixture-app-password',
+    MAIL_FROM: 'CSIT Sheet <sender@example.com>'
+  })
+  assert.equal(gmail.smtpHost, 'smtp.gmail.com'); assert.equal(gmail.smtpPort, 465); assert.equal(gmail.smtpSecure, true)
+  assert.equal(gmail.smtpUser, 'sender@example.com'); assert.equal(gmail.smtpPass, 'fixture-app-password')
+  assert.equal(gmail.mailFrom, 'CSIT Sheet <sender@example.com>')
+  assert.throws(() => validateAuthentication(loadConfiguration({ EMAIL_VERIFICATION_ENFORCED: 'true' })), /complete SMTP configuration/)
   const production = loadConfiguration({
     NODE_ENV: 'production',
     DATABASE_URL: 'postgresql://localhost/test',
@@ -134,12 +145,12 @@ function fakeMigrationPool({ fail = false } = {}) {
 
 test('migration runner uses a session lock, ledger, checksums, transactions and repeat no-op', async () => {
   const fake = fakeMigrationPool()
-  assert.deepEqual(await applyPostgresMigrations(fake.pool), ['001_initial_schema.sql', '002_storage_references.sql'])
+  assert.deepEqual(await applyPostgresMigrations(fake.pool), ['001_initial_schema.sql', '002_storage_references.sql', '003_account_community_enhancements.sql'])
   assert.deepEqual(await applyPostgresMigrations(fake.pool), [])
   assert.equal(fake.releases, 2)
   assert.match(fake.commands[0], /pg_advisory_lock/)
   assert.match(fake.commands.at(-1), /pg_advisory_unlock/)
-  assert.equal(fake.commands.filter(sql => sql === 'COMMIT').length, 2)
+  assert.equal(fake.commands.filter(sql => sql === 'COMMIT').length, 3)
   fake.history[0].checksum = 'changed'
   await assert.rejects(applyPostgresMigrations(fake.pool), /history differs/)
   const failing = fakeMigrationPool({ fail: true })

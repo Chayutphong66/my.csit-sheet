@@ -12,6 +12,8 @@ export const adminApi = {
       .get(useNetlifyFiles ? `/blob/${match.documentType.toLowerCase()}/${encodeURIComponent(match.publicDocumentId)}/${action}` : `/documents/${match.documentType.toLowerCase()}/${match.publicDocumentId}/${action}`, { responseType: 'blob' })
       .then((response) => response.data),
   adminUsers: () => request({ url: '/admin/users' }),
+  profileChangeRequests: (status = '') => request({ url: `/admin/profile-change-requests${status ? `?status=${encodeURIComponent(status)}` : ''}` }),
+  decideProfileChangeRequest: (id, status, reason = '') => request({ url: `/admin/profile-change-requests/${encodeURIComponent(id)}`, method: 'PATCH', data: { status, reason } }),
   adminCreateUploadRequest: (data) =>
     requestWithChunkedFile({ url: '/admin/upload-requests', method: 'POST', data }),
   approveUploadRequest: (id, data) =>

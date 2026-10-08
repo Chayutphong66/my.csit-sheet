@@ -4,9 +4,13 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { verifySchema } from './schemaRequirements.js'
 
-const schema = readFileSync(fileURLToPath(new URL('../../migrations/postgres/001_initial_schema.sql', import.meta.url)), 'utf8')
+const schema = [
+  '../../migrations/postgres/001_initial_schema.sql',
+  '../../migrations/postgres/003_account_community_enhancements.sql'
+].map(relative => readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8')).join('\n')
 export const transferTables = [...schema.matchAll(/CREATE TABLE (\w+) \(/g)].map(match => match[1])
 const canonicalColumns = new Map([...schema.matchAll(/CREATE TABLE (\w+) \(([\s\S]*?)\n\);/g)].map(match => [match[1], new Set([...match[2].matchAll(/\b(\w+)\s+(?:TEXT|INTEGER|BYTEA)\b/g)].map(column => column[1]))]))
+for (const match of schema.matchAll(/ALTER TABLE (\w+) ADD COLUMN IF NOT EXISTS (\w+)/g)) canonicalColumns.get(match[1])?.add(match[2])
 canonicalColumns.get('file_assets').add('storage_key').add('storage_provider')
 
 function inspectSource(source) {

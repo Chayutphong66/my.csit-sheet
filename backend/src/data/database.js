@@ -223,9 +223,59 @@ const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name)
 if (!userCols.includes('display_name')) db.exec("ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT ''")
 if (!userCols.includes('program_code')) db.exec("ALTER TABLE users ADD COLUMN program_code TEXT NOT NULL DEFAULT ''")
 if (!userCols.includes('cohort')) db.exec("ALTER TABLE users ADD COLUMN cohort TEXT NOT NULL DEFAULT ''")
+if (!userCols.includes('email_verified_at')) db.exec('ALTER TABLE users ADD COLUMN email_verified_at TEXT')
+if (!userCols.includes('display_name_changed_at')) db.exec('ALTER TABLE users ADD COLUMN display_name_changed_at TEXT')
+if (!userCols.includes('bio')) db.exec("ALTER TABLE users ADD COLUMN bio TEXT NOT NULL DEFAULT ''")
+if (!userCols.includes('avatar_storage_key')) db.exec('ALTER TABLE users ADD COLUMN avatar_storage_key TEXT')
+if (!userCols.includes('profile_public')) db.exec('ALTER TABLE users ADD COLUMN profile_public INTEGER NOT NULL DEFAULT 1')
+if (!userCols.includes('show_program')) db.exec('ALTER TABLE users ADD COLUMN show_program INTEGER NOT NULL DEFAULT 1')
+if (!userCols.includes('show_cohort')) db.exec('ALTER TABLE users ADD COLUMN show_cohort INTEGER NOT NULL DEFAULT 1')
 db.exec(`
   UPDATE users SET display_name = username WHERE trim(display_name) = '';
+  UPDATE users SET email_verified_at = COALESCE(email_verified_at, created_at) WHERE is_verified = 1;
   CREATE INDEX IF NOT EXISTS idx_users_public_identity ON users(lower(username), lower(display_name));
+`)
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS account_tokens (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    purpose TEXT NOT NULL CHECK(purpose IN ('EMAIL_VERIFICATION','PASSWORD_RESET')),
+    token_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, consumed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS user_follows (
+    follower_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    followed_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(follower_id, followed_id), CHECK(follower_id <> followed_id)
+  );
+  CREATE TABLE IF NOT EXISTS profile_change_requests (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    category TEXT NOT NULL CHECK(category IN ('PROGRAM','COHORT')),
+    current_value TEXT NOT NULL, requested_value TEXT NOT NULL, reason TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING','APPROVED','REJECTED')),
+    reviewer_id TEXT REFERENCES users(id), decision_reason TEXT NOT NULL DEFAULT '',
+    decided_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS notification_preferences (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    new_follower INTEGER NOT NULL DEFAULT 1, followed_documents INTEGER NOT NULL DEFAULT 1,
+    document_activity INTEGER NOT NULL DEFAULT 1, activity_email INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS email_deliveries (
+    id TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    template TEXT NOT NULL, recipient TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('SENT','MOCKED','UNAVAILABLE','FAILED')),
+    provider_message_id TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_account_tokens_lookup ON account_tokens(token_hash,purpose,expires_at);
+  CREATE INDEX IF NOT EXISTS idx_account_tokens_user ON account_tokens(user_id,purpose,created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_follows_followed ON user_follows(followed_id,created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_follows_follower ON user_follows(follower_id,created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_profile_change_user ON profile_change_requests(user_id,created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_profile_change_status ON profile_change_requests(status,created_at);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_profile_change_pending_unique ON profile_change_requests(user_id,category) WHERE status='PENDING';
 `)
 
 // Idempotent migration: add upload_date to pre-existing databases created before this column existed.

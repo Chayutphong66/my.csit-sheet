@@ -17,6 +17,10 @@ export const authApi = {
       data: credentials
     })
   },
+  forgotPassword: (email) => request({ url: '/auth/forgot-password', method: 'POST', data: { email } }),
+  resetPassword: (data) => request({ url: '/auth/reset-password', method: 'POST', data }),
+  verifyEmail: (token) => request({ url: `/auth/verify-email?token=${encodeURIComponent(token)}` }),
+  resendVerification: (email) => request({ url: '/auth/resend-verification', method: 'POST', data: { email } }),
   async refresh() {
     try {
       const data = await request({ url: '/auth/refresh', method: 'POST' })

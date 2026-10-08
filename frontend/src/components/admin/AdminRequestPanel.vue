@@ -7,6 +7,7 @@ import StatusBadge from '@/components/shared/StatusBadge.vue'
 import UserIdentity from '@/components/shared/UserIdentity.vue'
 import { documentTypeLabel, duplicateLabel } from '@/services/terminology'
 import AdminRevisionPanel from './AdminRevisionPanel.vue'
+import AdminProfileChangePanel from './AdminProfileChangePanel.vue'
 
 const requests = ref([]), loading = ref(true), error = ref(''), selectedId = ref('')
 const previewUrl = ref(''), previewLoading = ref(false), decisionBusy = ref(false)
@@ -129,6 +130,7 @@ onBeforeUnmount(() => { disposed = true; clearPreview() })
 
 <template>
   <section class="page-panel admin-review-page">
+    <AdminProfileChangePanel />
     <header class="panel__header">
       <div><p class="eyebrow">Review queue</p><h1>คิวตรวจสอบเอกสาร</h1><p>ตรวจเอกสารใหม่และข้อเสนอการแก้ไขจากคิวเดียวกัน โดยประวัติที่อนุมัติหรือปฏิเสธจะไม่ถูกลบ</p></div>
       <button class="button button--ghost" type="button" :disabled="loading || decisionBusy || Boolean(dialogMode)" @click="refreshAll">รีเฟรชคิว</button>

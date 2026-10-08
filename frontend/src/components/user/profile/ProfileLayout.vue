@@ -49,7 +49,7 @@ async function act(document, kind) {
   } catch (caught) { if (current === generation) actionError.value = caught.message }
   finally { busy.value = '' }
 }
-async function save(profileData) { saving.value = true; actionError.value = ''; try { await contributorApi.edit(profileData); await auth.refresh(); await load() } catch (caught) { actionError.value = caught.message } finally { saving.value = false } }
+async function follow(value) { saving.value = true; actionError.value = ''; try { await contributorApi.follow(profile.value.username, value); await load() } catch (caught) { actionError.value = caught.message } finally { saving.value = false } }
 watch(username, load, { immediate: true }); onBeforeUnmount(() => { generation++ })
 </script>
 
@@ -58,7 +58,7 @@ watch(username, load, { immediate: true }); onBeforeUnmount(() => { generation++
     <div v-if="loading" class="loading-state skeleton-list"><div class="skeleton-line" /><div class="skeleton-line" /></div>
     <div v-else-if="error" class="error-state" role="alert"><h1>เปิดโปรไฟล์ไม่ได้</h1><p>{{ error }}</p><button class="button button--ghost" @click="load">ลองอีกครั้ง</button></div>
     <div v-else-if="profile" class="document-profile__layout">
-      <ProfileSidebar :profile="profile" :saving="saving" @save="save" />
+      <ProfileSidebar :profile="profile" :saving="saving" @follow="follow" />
       <div class="document-profile__content">
         <nav class="document-profile__tabs" aria-label="Profile navigation"><RouterLink v-for="tab in tabs" :key="tab.key" :to="{ path: route.path, query: tab.key === 'overview' ? {} : { tab: tab.key } }" :class="{ 'document-profile__tab--active': active === tab.key }" :aria-current="active === tab.key ? 'page' : undefined">{{ tab.label }}<span v-if="tab.count !== undefined" class="count-pill">{{ tab.count }}</span></RouterLink></nav>
         <p v-if="actionError" class="form-error" role="alert">{{ actionError }}</p>

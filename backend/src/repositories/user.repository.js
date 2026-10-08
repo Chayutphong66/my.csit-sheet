@@ -13,7 +13,14 @@ function toUser(row) {
     isVerified: Boolean(row.is_verified),
     provider: row.provider,
     program: row.program_code || '',
-    cohort: row.cohort || ''
+    cohort: row.cohort || '',
+    bio: row.bio || '',
+    avatarStorageKey: row.avatar_storage_key || '',
+    emailVerifiedAt: row.email_verified_at || null,
+    displayNameChangedAt: row.display_name_changed_at || null,
+    profilePublic: Boolean(row.profile_public),
+    showProgram: Boolean(row.show_program),
+    showCohort: Boolean(row.show_cohort)
   }
 }
 
@@ -26,6 +33,10 @@ export async function findUserByEmailOrUsername(usernameOrEmail) {
 
 export async function findUserById(id) {
   return toUser(await db.prepare('SELECT * FROM users WHERE id = ?').get(id))
+}
+
+export async function findUserByEmail(email) {
+  return toUser(await db.prepare('SELECT * FROM users WHERE lower(email)=lower(?)').get(String(email || '').trim()))
 }
 
 export async function createUser(user) {
@@ -61,6 +72,11 @@ export async function createUser(user) {
 export async function updateUserPassword(id, password) {
   await db.prepare('UPDATE users SET password = ? WHERE id = ?').run(password, id)
   return await findUserById(id)
+}
+
+export async function markEmailVerified(id) {
+  await db.prepare('UPDATE users SET is_verified=1,email_verified_at=CURRENT_TIMESTAMP WHERE id=?').run(id)
+  return findUserById(id)
 }
 
 export async function countUsers() {

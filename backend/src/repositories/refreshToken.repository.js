@@ -40,3 +40,7 @@ export async function revokeExpiredRefreshSessions() {
     WHERE revoked_at IS NULL AND expires_at <= CURRENT_TIMESTAMP
   `).run()
 }
+
+export async function revokeRefreshSessionsByUserId(userId) {
+  return db.prepare('UPDATE refresh_tokens SET revoked_at=CURRENT_TIMESTAMP WHERE user_id=? AND revoked_at IS NULL').run(userId)
+}

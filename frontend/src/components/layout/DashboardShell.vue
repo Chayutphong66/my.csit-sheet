@@ -33,7 +33,7 @@ onMounted(() => { if (isUser.value) notifications.load() })
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>
           <span v-if="notifications.unreadCount" class="notif-bell__badge">{{ notifications.unreadCount > 9 ? '9+' : notifications.unreadCount }}</span>
         </RouterLink>
-        <span class="account-chip"><span class="account-avatar" aria-hidden="true">{{ initials }}</span><span class="account-chip__name">{{ displayName }}</span></span>
+        <span class="account-chip"><img v-if="auth.user?.avatarUrl" class="account-avatar" :src="auth.user.avatarUrl" alt="" /><span v-else class="account-avatar" aria-hidden="true">{{ initials }}</span><span class="account-chip__name">{{ displayName }}</span></span>
         <button class="button button--ghost desktop-logout" type="button" @click="logout">ออกจากระบบ</button>
         <button class="menu-button" type="button" :aria-expanded="menuOpen" aria-controls="mobile-dashboard-menu" aria-label="เปิดเมนู" @click="menuOpen = !menuOpen" @keydown.esc="menuOpen = false"><span></span><span></span><span></span></button>
       </div>
