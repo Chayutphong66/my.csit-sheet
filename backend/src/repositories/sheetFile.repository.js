@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { db } from '../data/databaseClient.js'
-import { readFileBytes } from '../services/fileStorage.service.js'
+import { readFileBytes, storageReferenceSql } from '../services/fileStorage.service.js'
 
 function toSheetFile(row) {
   if (!row) return null
@@ -57,7 +57,7 @@ export async function findSheetFileBySheetId(sheetId) {
            sheet_files.original_filename, sheet_files.stored_filename,
            sheet_files.mime_type, sheet_files.file_size, sheet_files.file_asset_id,
            COALESCE(file_assets.file_data, sheet_files.file_data) AS file_data,
-           file_assets.blob_key,
+           ${storageReferenceSql()} AS blob_key,
            sheet_files.created_at, sheet_files.updated_at
     FROM sheet_files
     LEFT JOIN file_assets ON file_assets.id = sheet_files.file_asset_id

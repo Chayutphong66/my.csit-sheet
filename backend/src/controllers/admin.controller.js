@@ -1,4 +1,4 @@
-import { countUsers, listUsers } from '../repositories/user.repository.js'
+import { countUsers } from '../repositories/user.repository.js'
 import { countLecturesByStatus } from '../repositories/lecture.repository.js'
 import {
   countSheets,
@@ -30,8 +30,61 @@ import { discardUploadSession, resolveUploadBody } from '../services/uploadSessi
 import { decideProfileChangeRequest as decideProfileRequest, listProfileChangeRequests, notifyFollowersOfDocument } from '../repositories/community.repository.js'
 import { findUserById } from '../repositories/user.repository.js'
 import { sendEmail } from '../services/email.service.js'
+import { logServerError } from '../services/safeLogger.service.js'
+import * as adminUserService from '../services/adminUser.service.js'
+import { createCollection, findCollection, listCollections, updateCollection } from '../repositories/collection.repository.js'
+import { createBulkUpload, getBulkUpload, retryBulkUpload } from '../services/bulkUpload.service.js'
 
 const COURSE_IMPORT_MAX_BYTES = 20 * 1024 * 1024
+
+export async function getCollections(req, res, next) {
+  try { res.json(await listCollections(req.query)) } catch (error) { next(error) }
+}
+
+export async function getCollection(req, res, next) {
+  try {
+    const collection = await findCollection(req.params.id)
+    if (!collection) return res.status(404).json({ message: 'Collection not found' })
+    res.json(collection)
+  } catch (error) { next(error) }
+}
+
+export async function postCollection(req, res, next) {
+  try { res.status(201).json(await createCollection(req.user.id, req.body)) } catch (error) { next(error) }
+}
+
+export async function patchCollection(req, res, next) {
+  try { res.json(await updateCollection(req.params.id, req.body)) } catch (error) { next(error) }
+}
+
+export async function postBulkUpload(req, res, next) {
+  try { res.status(207).json(await createBulkUpload({ actorId: req.user.id, body: req.body })) } catch (error) { next(error) }
+}
+
+export async function getBulkUploadJob(req, res, next) {
+  try { res.json(await getBulkUpload({ id: req.params.id, actorId: req.user.id })) } catch (error) { next(error) }
+}
+
+export async function retryBulkUploadJob(req, res, next) {
+  try { res.json(await retryBulkUpload({ id: req.params.id, actorId: req.user.id, body: req.body })) } catch (error) { next(error) }
+}
+
+async function runPostPublicationEffects(effects, context) {
+  const results = await Promise.allSettled(effects.map(effect => effect()))
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      logServerError('approval.post_publication_effect_failed', result.reason, context)
+    }
+  }
+}
+
+function publishedDocument(request) {
+  return {
+    id: request.documentType === 'Lecture' ? request.lectureId : request.sheetId,
+    title: request.title,
+    documentType: request.documentType
+  }
+}
 
 function courseImportPayload(body) {
   const fileName = String(body.fileName ?? '').trim()
@@ -97,8 +150,24 @@ export async function getUploadRequestFile(req, res, next) {
   }
 }
 
-export async function getUsers(_req, res) {
-  res.json(await listUsers())
+export async function getUsers(req, res, next) {
+  try { res.json(await adminUserService.searchUsers(req.query)) } catch (error) { next(error) }
+}
+
+export async function getUser(req, res, next) {
+  try { res.json(await adminUserService.getUserDetails(req.params.id)) } catch (error) { next(error) }
+}
+
+export async function editUser(req, res, next) {
+  try { res.json(await adminUserService.editUser({ actorId: req.user.id, targetId: req.params.id, body: req.body })) } catch (error) { next(error) }
+}
+
+export async function changeUserStatus(req, res, next) {
+  try { res.json(await adminUserService.changeUserStatus({ actorId: req.user.id, targetId: req.params.id, body: req.body })) } catch (error) { next(error) }
+}
+
+export async function getAuditLogs(req, res, next) {
+  try { res.json(await adminUserService.getAuditLogs(req.query)) } catch (error) { next(error) }
 }
 
 export async function getProfileChangeRequests(req, res, next) {
@@ -158,14 +227,15 @@ export async function createUploadRequestAsAdmin(req, res, next) {
       throw error
     }
     const published = await publishUploadRequest(request.id, { adminId: req.user.id })
-    await notifyFollowersOfDocument({ uploaderId: req.user.id, document: published })
-
-    await createNotification({
-      userId: req.user.id,
-      title: 'Admin Upload Published',
-      message: 'Your administrator upload was published immediately.',
-      uploadRequestId: request.id
-    })
+    await runPostPublicationEffects([
+      () => notifyFollowersOfDocument({ uploaderId: req.user.id, document: publishedDocument(published) }),
+      () => createNotification({
+        userId: req.user.id,
+        title: 'Admin Upload Published',
+        message: 'Your administrator upload was published immediately.',
+        uploadRequestId: request.id
+      })
+    ], { operation: 'admin_direct_upload', requestId: request.id })
 
     if (sessionId) await discardUploadSession(sessionId)
 
@@ -222,14 +292,15 @@ export async function approveUploadRequest(req, res, next) {
     await assignCategoryIfPresent(request.id, req.body)
 
     const published = await publishUploadRequest(request.id, { adminId: req.user.id })
-    await notifyFollowersOfDocument({ uploaderId: request.userId, document: published })
-
-    await createNotification({
-      userId: request.userId,
-      title: 'Upload Request Approved',
-      message: 'Your upload has been approved and is now published for everyone to view and download.',
-      uploadRequestId: request.id
-    })
+    await runPostPublicationEffects([
+      () => notifyFollowersOfDocument({ uploaderId: request.userId, document: publishedDocument(published) }),
+      () => createNotification({
+        userId: request.userId,
+        title: 'Upload Request Approved',
+        message: 'Your upload has been approved and is now published for everyone to view and download.',
+        uploadRequestId: request.id
+      })
+    ], { operation: 'approve_upload_request', requestId: request.id })
 
     res.json(published)
   } catch (error) {

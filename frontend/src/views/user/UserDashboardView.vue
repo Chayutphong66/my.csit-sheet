@@ -3,10 +3,10 @@ import DashboardShell from '@/components/layout/DashboardShell.vue'
 
 const navItems = [
   { label: 'หน้าหลัก', to: '/dashboard/home' },
-  { label: 'กำลังติดตาม', to: '/dashboard/following' },
   { label: 'เอกสารการสอน', to: '/dashboard/lec' },
   { label: 'ชีทสรุป', to: '/dashboard/sheet' },
   { label: 'อัปโหลด', to: '/dashboard/upload' },
+  { label: 'Collections', to: '/dashboard/collections' },
   { label: 'โปรไฟล์', to: '/dashboard/profile' }
 ]
 </script>

@@ -34,10 +34,18 @@ export async function setFollowing(follower, followed, following) {
 export async function listConnections(userId, kind, viewerId) {
   const join = kind === 'followers' ? 'f.follower_id=u.id' : 'f.followed_id=u.id'
   const where = kind === 'followers' ? 'f.followed_id=?' : 'f.follower_id=?'
-  const people = (await db.prepare(`SELECT u.* FROM user_follows f JOIN users u ON ${join} WHERE ${where} AND u.profile_public=1 ORDER BY f.created_at DESC LIMIT 100`).all(userId)).map(mapPerson)
-  return Promise.all(people.map(async person => {
-    const row = await db.prepare('SELECT id FROM users WHERE username=?').get(person.username)
-    return { ...person, ...(await followSummary(row.id, viewerId)) }
+  const rows = await db.prepare(`SELECT u.*,
+    (SELECT COUNT(*) FROM user_follows WHERE followed_id=u.id) followers,
+    (SELECT COUNT(*) FROM user_follows WHERE follower_id=u.id) following,
+    EXISTS(SELECT 1 FROM user_follows WHERE follower_id=? AND followed_id=u.id) followed_by_me
+    FROM user_follows f JOIN users u ON ${join}
+    WHERE ${where} AND u.profile_public=1
+    ORDER BY f.created_at DESC LIMIT 100`).all(viewerId || '', userId)
+  return rows.map(row => ({
+    ...mapPerson(row),
+    followersCount: Number(row.followers),
+    followingCount: Number(row.following),
+    followedByMe: Boolean(row.followed_by_me)
   }))
 }
 

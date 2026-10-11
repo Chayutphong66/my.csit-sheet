@@ -659,6 +659,34 @@ test('publication failure rolls back the material, published file, and request c
   )
 })
 
+test('approval stays successful when a non-critical post-publication notification fails', async () => {
+  const adminToken = await login('admin1', 'Admin@1234')
+  const userToken = await login('user1')
+  const title = 'Approval Survives Notification Failure'
+  const upload = await api('/upload-requests', {
+    method: 'POST', token: userToken,
+    body: uploadPayload({ title, fileName: 'notification-safe.pdf', contents: '%PDF-notification-safe', documentType: 'Sheet' })
+  })
+  assert.equal(upload.response.status, 201)
+
+  db.exec(`
+    CREATE TRIGGER fail_approval_notification
+    BEFORE INSERT ON notifications
+    WHEN NEW.title = 'Upload Request Approved'
+    BEGIN
+      SELECT RAISE(ABORT, 'forced non-critical notification failure');
+    END;
+  `)
+  const approval = await api(`/admin/upload-requests/${upload.data.id}/approve`, {
+    method: 'PATCH', token: adminToken, body: {}
+  })
+  db.exec('DROP TRIGGER fail_approval_notification')
+
+  assert.equal(approval.response.status, 200)
+  assert.equal(approval.data.status, 'COMPLETED')
+  assert.ok((await listSheets(userToken)).some(sheet => sheet.title === title))
+})
+
 test('invalid file metadata and spoofed file contents are rejected safely', async () => {
   const userToken = await login('student01')
 

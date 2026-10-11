@@ -9,7 +9,7 @@ const DashboardShellStub = {
 }
 
 describe('user dashboard navigation', () => {
-  it('includes the following feed with the existing Thai-first destinations', () => {
+  it('removes Following from the Navbar while preserving the other destinations', () => {
     const wrapper = mount(UserDashboardView, {
       global: {
         mocks: { $route: { fullPath: '/dashboard/home' } },
@@ -23,11 +23,12 @@ describe('user dashboard navigation', () => {
     const navItems = wrapper.findComponent(DashboardShellStub).props('navItems')
     expect(navItems).toEqual([
       { label: 'หน้าหลัก', to: '/dashboard/home' },
-      { label: 'กำลังติดตาม', to: '/dashboard/following' },
       { label: 'เอกสารการสอน', to: '/dashboard/lec' },
       { label: 'ชีทสรุป', to: '/dashboard/sheet' },
       { label: 'อัปโหลด', to: '/dashboard/upload' },
+      { label: 'Collections', to: '/dashboard/collections' },
       { label: 'โปรไฟล์', to: '/dashboard/profile' }
     ])
+    expect(navItems.some(item => item.to === '/dashboard/following')).toBe(false)
   })
 })

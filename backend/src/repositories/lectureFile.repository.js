@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { db } from '../data/databaseClient.js'
-import { readFileBytes } from '../services/fileStorage.service.js'
+import { readFileBytes, storageReferenceSql } from '../services/fileStorage.service.js'
 
 function toLectureFile(row) {
   if (!row) return null
@@ -57,7 +57,7 @@ export async function findLectureFileByLectureId(lectureId) {
            lecture_files.original_filename, lecture_files.stored_filename,
            lecture_files.mime_type, lecture_files.file_size, lecture_files.file_asset_id,
            COALESCE(file_assets.file_data, lecture_files.file_data) AS file_data,
-           file_assets.blob_key,
+           ${storageReferenceSql()} AS blob_key,
            lecture_files.created_at, lecture_files.updated_at
     FROM lecture_files
     LEFT JOIN file_assets ON file_assets.id = lecture_files.file_asset_id

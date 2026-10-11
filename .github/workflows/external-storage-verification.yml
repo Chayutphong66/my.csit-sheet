@@ -1,0 +1,29 @@
+name: Isolated External Storage Verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-supabase-storage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: isolated-storage
+    env:
+      NODE_ENV: test
+      RUN_EXTERNAL_STORAGE_TESTS: "true"
+      EXTERNAL_STORAGE_SAFETY_TOKEN: ISOLATED-NON-PRODUCTION
+      TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+      TEST_SUPABASE_SECRET_KEY: ${{ secrets.TEST_SUPABASE_SECRET_KEY }}
+      TEST_SUPABASE_STORAGE_BUCKET: ${{ secrets.TEST_SUPABASE_STORAGE_BUCKET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify isolated object storage lifecycle
+        run: npm run test:external-storage

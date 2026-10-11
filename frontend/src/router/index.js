@@ -1,29 +1,37 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
 import LandingView from '@/views/LandingView.vue'
-import LoginView from '@/views/auth/LoginView.vue'
-import RegisterView from '@/views/auth/RegisterView.vue'
-import ForgotPasswordView from '@/views/auth/ForgotPasswordView.vue'
-import ResetPasswordView from '@/views/auth/ResetPasswordView.vue'
-import VerifyEmailView from '@/views/auth/VerifyEmailView.vue'
-import UserDashboardView from '@/views/user/UserDashboardView.vue'
-import AdminDashboardView from '@/views/admin/AdminDashboardView.vue'
-import UserHomePanel from '@/components/user/UserHomePanel.vue'
-import UserProfilePanel from '@/components/user/UserProfilePanel.vue'
-import AdminRequestPanel from '@/components/admin/AdminRequestPanel.vue'
-import AdminUploadPanel from '@/components/admin/AdminUploadPanel.vue'
-import AdminStatusPanel from '@/components/admin/AdminStatusPanel.vue'
-import AdminSubjectPanel from '@/components/admin/AdminSubjectPanel.vue'
-import AdminDashboardPanel from '@/components/admin/AdminDashboardPanel.vue'
-import CourseDetailPanel from '@/components/user/CourseDetailPanel.vue'
-import CourseYearPanel from '@/components/user/CourseYearPanel.vue'
-import DocumentSearchPanel from '@/components/user/DocumentSearchPanel.vue'
-import DocumentCatalogPanel from '@/components/user/DocumentCatalogPanel.vue'
-import UserUploadPanel from '@/components/user/UserUploadPanel.vue'
-import PublicProfilePanel from '@/components/user/PublicProfilePanel.vue'
-import DocumentDetailPanel from '@/components/user/DocumentDetailPanel.vue'
-import ProfileSettingsView from '@/views/user/ProfileSettingsView.vue'
-import FollowingFeedView from '@/views/user/FollowingFeedView.vue'
+
+// Keep the public landing route small. Authenticated and administrative
+// screens are fetched only when navigation needs them.
+const LoginView = () => import('@/views/auth/LoginView.vue')
+const RegisterView = () => import('@/views/auth/RegisterView.vue')
+const ForgotPasswordView = () => import('@/views/auth/ForgotPasswordView.vue')
+const ResetPasswordView = () => import('@/views/auth/ResetPasswordView.vue')
+const VerifyEmailView = () => import('@/views/auth/VerifyEmailView.vue')
+const UserDashboardView = () => import('@/views/user/UserDashboardView.vue')
+const AdminDashboardView = () => import('@/views/admin/AdminDashboardView.vue')
+const UserHomePanel = () => import('@/components/user/UserHomePanel.vue')
+const UserProfilePanel = () => import('@/components/user/UserProfilePanel.vue')
+const AdminRequestPanel = () => import('@/components/admin/AdminRequestPanel.vue')
+const AdminUploadPanel = () => import('@/components/admin/AdminUploadPanel.vue')
+const AdminStatusPanel = () => import('@/components/admin/AdminStatusPanel.vue')
+const AdminSubjectPanel = () => import('@/components/admin/AdminSubjectPanel.vue')
+const AdminDashboardPanel = () => import('@/components/admin/AdminDashboardPanel.vue')
+const AdminCollectionPanel = () => import('@/components/admin/AdminCollectionPanel.vue')
+const CourseDetailPanel = () => import('@/components/user/CourseDetailPanel.vue')
+const CourseYearPanel = () => import('@/components/user/CourseYearPanel.vue')
+const DocumentSearchPanel = () => import('@/components/user/DocumentSearchPanel.vue')
+const DocumentCatalogPanel = () => import('@/components/user/DocumentCatalogPanel.vue')
+const UserUploadPanel = () => import('@/components/user/UserUploadPanel.vue')
+const PublicProfilePanel = () => import('@/components/user/PublicProfilePanel.vue')
+const DocumentDetailPanel = () => import('@/components/user/DocumentDetailPanel.vue')
+const ProfileSettingsView = () => import('@/views/user/ProfileSettingsView.vue')
+const FollowingFeedView = () => import('@/views/user/FollowingFeedView.vue')
+const UserCollectionPanel = () => import('@/components/user/UserCollectionPanel.vue')
+const CollectionEditorPanel = () => import('@/components/user/CollectionEditorPanel.vue')
+const PublishedCollectionPanel = () => import('@/components/user/PublishedCollectionPanel.vue')
+const CollectionReaderPanel = () => import('@/components/user/CollectionReaderPanel.vue')
 
 const routes = [
   { path: '/', name: 'home', component: LandingView },
@@ -51,6 +59,10 @@ const routes = [
       { path: 'lec/:courseId', name: 'lecture-course', component: CourseDetailPanel, props: { documentType: 'Lecture', basePath: '/dashboard/lec' } },
       { path: 'lec/:courseId/years/:year', name: 'lecture-course-year', component: CourseYearPanel, props: { documentType: 'Lecture' } },
       { path: 'upload', name: 'user-upload', component: UserUploadPanel },
+      { path: 'collections', name: 'user-collections', component: UserCollectionPanel },
+      { path: 'collections/:id/edit', name: 'collection-edit', component: CollectionEditorPanel },
+      { path: 'c/:slug', name: 'published-collection', component: PublishedCollectionPanel },
+      { path: 'c/:slug/read/:type?/:documentId?', name: 'collection-reader', component: CollectionReaderPanel },
       { path: 'requests', redirect: { name: 'user-upload' } },
       { path: 'notifications', redirect: { name: 'user-profile' } },
       { path: 'profile', name: 'user-profile', component: UserProfilePanel },
@@ -68,6 +80,7 @@ const routes = [
       { path: 'upload', name: 'admin-upload', component: AdminUploadPanel },
       { path: 'status', name: 'admin-status', component: AdminStatusPanel },
       { path: 'subject', name: 'admin-subject', component: AdminSubjectPanel },
+      { path: 'collections', name: 'admin-collections', component: AdminCollectionPanel },
       { path: 'dashboard', name: 'admin-dashboard', component: AdminDashboardPanel }
     ]
   }
@@ -76,7 +89,10 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior() {
+  scrollBehavior(to, _from, savedPosition) {
+    if (savedPosition) return savedPosition
+    if (to.name === 'profile-settings') return { top: 0 }
+    if (to.hash) return { el: to.hash, top: 100 }
     return { top: 0 }
   }
 })

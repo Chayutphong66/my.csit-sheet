@@ -11,7 +11,18 @@ export const adminApi = {
     apiClient
       .get(useNetlifyFiles ? `/blob/${match.documentType.toLowerCase()}/${encodeURIComponent(match.publicDocumentId)}/${action}` : `/documents/${match.documentType.toLowerCase()}/${match.publicDocumentId}/${action}`, { responseType: 'blob' })
       .then((response) => response.data),
-  adminUsers: () => request({ url: '/admin/users' }),
+  adminUsers: ({ search = '', status = '', page = 1, limit = 20 } = {}) => request({ url: `/admin/users?search=${encodeURIComponent(search)}&status=${encodeURIComponent(status)}&page=${page}&limit=${limit}` }),
+  adminUser: (id) => request({ url: `/admin/users/${encodeURIComponent(id)}` }),
+  updateAdminUser: (id, data) => request({ url: `/admin/users/${encodeURIComponent(id)}`, method: 'PATCH', data }),
+  updateAdminUserStatus: (id, status, reason = '') => request({ url: `/admin/users/${encodeURIComponent(id)}/status`, method: 'PATCH', data: { status, reason } }),
+  adminAuditLogs: ({ targetUserId = '', page = 1, limit = 20 } = {}) => request({ url: `/admin/audit-logs?targetUserId=${encodeURIComponent(targetUserId)}&page=${page}&limit=${limit}` }),
+  collections: (status = '') => request({ url: `/admin/collections${status ? `?status=${encodeURIComponent(status)}` : ''}` }),
+  collection: (id) => request({ url: `/admin/collections/${encodeURIComponent(id)}` }),
+  createCollection: (data) => request({ url: '/admin/collections', method: 'POST', data }),
+  updateCollection: (id, data) => request({ url: `/admin/collections/${encodeURIComponent(id)}`, method: 'PATCH', data }),
+  createBulkUpload: (data) => request({ url: '/admin/bulk-uploads', method: 'POST', data }),
+  bulkUpload: (id) => request({ url: `/admin/bulk-uploads/${encodeURIComponent(id)}` }),
+  retryBulkUpload: (id, items) => request({ url: `/admin/bulk-uploads/${encodeURIComponent(id)}/retry`, method: 'POST', data: { items } }),
   profileChangeRequests: (status = '') => request({ url: `/admin/profile-change-requests${status ? `?status=${encodeURIComponent(status)}` : ''}` }),
   decideProfileChangeRequest: (id, status, reason = '') => request({ url: `/admin/profile-change-requests/${encodeURIComponent(id)}`, method: 'PATCH', data: { status, reason } }),
   adminCreateUploadRequest: (data) =>

@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { once } from 'node:events'
+import { readdir } from 'node:fs/promises'
+import { migrationDirectory } from '../src/data/postgresMigrations.js'
 
 // Never use DATABASE_URL or a production endpoint as an integration-test default.
-test('dedicated local PostgreSQL: migrations, transactions, auth, files and concurrent revisions', { skip: !process.env.TEST_DATABASE_URL && 'TEST_DATABASE_URL NOT PROVIDED' }, async () => {
+test('dedicated local PostgreSQL: migrations, constraints, transactions and concurrency guards', { skip: !process.env.TEST_DATABASE_URL && 'TEST_DATABASE_URL NOT PROVIDED' }, async () => {
   const url = new URL(process.env.TEST_DATABASE_URL)
   assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(url.hostname), 'Only a dedicated local test database is allowed in Phase 1')
   assert.match(url.pathname, /test/i, 'Test database name must contain test')
@@ -16,9 +18,25 @@ test('dedicated local PostgreSQL: migrations, transactions, auth, files and conc
   try {
     const existing = await pool.query("SELECT table_name FROM information_schema.tables WHERE table_schema='public'")
     assert.equal(existing.rows.length, 0, 'Refusing to alter a non-empty test database; provide a fresh dedicated database')
+    const expectedMigrations = (await readdir(migrationDirectory)).filter(name => /^\d+.*\.sql$/.test(name)).sort()
+    assert.ok(expectedMigrations.length >= 2, 'Canonical migration set must not unexpectedly shrink')
     const migrations = await Promise.all([applyPostgresMigrations(pool), applyPostgresMigrations(pool)])
-    assert.equal(migrations.flat().length, 2)
+    assert.deepEqual(migrations.flat().sort(), expectedMigrations, 'Concurrent runners must apply every canonical migration exactly once')
     assert.deepEqual(await applyPostgresMigrations(pool), [])
+    const ledger = (await pool.query('SELECT name,checksum FROM app_schema_migrations ORDER BY name')).rows
+    assert.deepEqual(ledger.map(row => row.name), expectedMigrations)
+    assert.ok(ledger.every(row => /^[a-f0-9]{64}$/.test(row.checksum)), 'Migration ledger must retain SHA-256 checksums')
+    await pool.query("UPDATE app_schema_migrations SET checksum=repeat('0',64) WHERE name=$1", [ledger[0].name])
+    await assert.rejects(applyPostgresMigrations(pool), /history differs from canonical files/)
+    await pool.query('UPDATE app_schema_migrations SET checksum=$1 WHERE name=$2', [ledger[0].checksum, ledger[0].name])
+    await assert.rejects(
+      pool.query("INSERT INTO users(id,username,email,password,role) VALUES('bad-role','bad-role','bad-role@example.invalid','x','ROOT')"),
+      error => error.code === '23514'
+    )
+    await assert.rejects(
+      pool.query("INSERT INTO program_courses(program_id,course_id) VALUES('missing-program','missing-course')"),
+      error => error.code === '23503'
+    )
     const database = await import('../src/data/databaseClient.js'); closeDatabase = database.closeDatabase
     const { db, withTransaction } = database
     await database.checkDatabaseConnection()
@@ -49,6 +67,9 @@ test('dedicated local PostgreSQL: migrations, transactions, auth, files and conc
     const { createUser } = await import('../src/repositories/user.repository.js')
     const admin = await createUser({ id: crypto.randomUUID(), username: 'pgfixtureadmin', email: 'admin@example.invalid', password: hashPassword('FixtureAdmin123'), role: 'ADMIN' })
     await db.prepare("INSERT INTO courses(id,name,code) VALUES('pg-course','Postgres Fixture','PG101')").run()
+    await db.prepare("INSERT INTO program_courses(program_id,course_id) VALUES('program-cs','pg-course')").run()
+    await db.prepare("INSERT INTO course_offerings(id,course_id,academic_year,semester) VALUES('pg-offering','pg-course','2569','1')").run()
+    await db.prepare("INSERT INTO course_offering_programs(offering_id,program_id) VALUES('pg-offering','program-cs')").run()
     const { createUploadRequest, publishUploadRequest } = await import('../src/repositories/uploadRequest.repository.js')
     const bytes = Buffer.from('%PDF-1.4\nPG integration fixture\n%%EOF')
     const request = await createUploadRequest({ userId: stored.id, title: 'Postgres Fixture', fileName: 'pg.pdf', fileType: 'application/pdf', fileData: bytes, fileSize: bytes.length, courseId: 'pg-course', documentType: 'Lecture', academicYear: '2569', semester: '1', programId: 'program-cs' })
@@ -64,6 +85,54 @@ test('dedicated local PostgreSQL: migrations, transactions, auth, files and conc
     assert.deepEqual(approved.map(version => version.versionNumber).sort(), [2, 3])
     const file = await versions.findVersionFile(approved[0].id)
     assert.ok(Buffer.from(file.fileData).toString().includes('PG revision'))
+
+    const dedupBytes = Buffer.from('%PDF-1.4\nPG concurrent dedup fixture\n%%EOF')
+    const dedupHash = crypto.createHash('sha256').update(dedupBytes).digest('hex')
+    const duplicateRequests = await Promise.all([1, 2].map(index => createUploadRequest({
+      userId: stored.id, title: 'Concurrent dedup fixture', fileName: `dedup-${index}.pdf`, fileType: 'application/pdf',
+      fileData: dedupBytes, fileSize: dedupBytes.length, courseId: 'pg-course', documentType: 'Lecture',
+      academicYear: '2569', semester: '1', programId: 'program-cs'
+    })))
+    assert.deepEqual(duplicateRequests.map(item => item.duplicateStatus).sort(), ['EXACT_DUPLICATE', 'NONE'])
+    assert.equal((await db.prepare('SELECT COUNT(*) count FROM file_assets WHERE binary_hash=?').get(dedupHash)).count, '1')
+
+    const collections = await import('../src/repositories/collection.repository.js')
+    const actor = { id: stored.id, role: 'USER' }
+    let ordered = await collections.createCollection(stored.id, { name: 'Postgres concurrent ordering', collectionType: 'MIXED' })
+    ordered = await collections.createSection(ordered.id, actor, { title: 'Alpha' })
+    ordered = await collections.createSection(ordered.id, actor, { title: 'Beta' })
+    const sectionIds = ordered.sections.map(section => section.id)
+    const orderResults = await Promise.allSettled([sectionIds, [...sectionIds].reverse()].map(sections => collections.saveCollectionOrder(ordered.id, actor, {
+      expectedVersion: ordered.version, sections, documents: []
+    })))
+    assert.deepEqual(orderResults.map(result => result.status).sort(), ['fulfilled', 'rejected'])
+    assert.equal(orderResults.find(result => result.status === 'rejected').reason.status, 409)
+    assert.equal(Number((await db.prepare('SELECT version FROM collections WHERE id=?').get(ordered.id)).version), ordered.version + 1)
+
+    await db.prepare("INSERT INTO courses(id,name,code) VALUES('pg-course-other','Other Postgres Fixture','PG202')").run()
+    const bulk = await import('../src/services/bulkUpload.service.js')
+    const failedJob = await bulk.createBulkUpload({ actorId: stored.id, actorRole: 'USER', body: {
+      collectionId: ordered.id,
+      sharedMetadata: { courseId: 'pg-course', programId: 'program-cs', documentType: 'Sheet', academicYear: '2569', semester: '1' },
+      items: [{ clientKey: 'retry-race', title: 'Retry race', fileName: 'retry-race.pdf', fileType: 'application/pdf', fileData: dedupBytes.toString('base64'), courseId: 'missing-course' }]
+    } })
+    assert.equal(failedJob.status, 'FAILED')
+    const retryBody = { sharedMetadata: { courseId: 'pg-course', programId: 'program-cs', documentType: 'Sheet', academicYear: '2569', semester: '1' }, items: [{ clientKey: 'retry-race', title: 'Retry recovered', fileName: 'retry-recovered.pdf', fileType: 'application/pdf', fileData: Buffer.from('%PDF-1.4\nretry recovered\n%%EOF').toString('base64') }] }
+    const retryResults = await Promise.allSettled([1, 2].map(() => bulk.retryBulkUpload({ id: failedJob.id, actorId: stored.id, actorRole: 'USER', body: retryBody })))
+    assert.deepEqual(retryResults.map(result => result.status).sort(), ['fulfilled', 'rejected'])
+    assert.equal(retryResults.find(result => result.status === 'rejected').reason.status, 409)
+    const retried = await db.prepare('SELECT status,attempt_count attemptCount,request_id requestId FROM bulk_upload_items WHERE job_id=? AND client_key=?').get(failedJob.id, 'retry-race')
+    assert.equal(retried.status, 'READY'); assert.equal(Number(retried.attemptCount), 2); assert.ok(retried.requestId)
+
+    const secondAdmin = await createUser({ id: crypto.randomUUID(), username: 'pgfixtureadmin2', email: 'admin2@example.invalid', password: hashPassword('FixtureAdmin123'), role: 'ADMIN' })
+    const { changeUserStatus } = await import('../src/services/adminUser.service.js')
+    const adminResults = await Promise.allSettled([
+      changeUserStatus({ actorId: admin.id, targetId: secondAdmin.id, body: { status: 'DEACTIVATED', reason: 'Postgres concurrency verification' } }),
+      changeUserStatus({ actorId: secondAdmin.id, targetId: admin.id, body: { status: 'DEACTIVATED', reason: 'Postgres concurrency verification' } })
+    ])
+    assert.deepEqual(adminResults.map(result => result.status).sort(), ['fulfilled', 'rejected'])
+    assert.match(adminResults.find(result => result.status === 'rejected').reason.message, /last active administrator/i)
+    assert.equal(Number((await db.prepare("SELECT COUNT(*) count FROM users WHERE role='ADMIN' AND account_status='ACTIVE'").get()).count), 1)
   } finally {
     if (server) await new Promise(resolve => server.close(resolve))
     if (closeDatabase) await closeDatabase()

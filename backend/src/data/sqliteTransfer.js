@@ -6,10 +6,20 @@ import { verifySchema } from './schemaRequirements.js'
 
 const schema = [
   '../../migrations/postgres/001_initial_schema.sql',
-  '../../migrations/postgres/003_account_community_enhancements.sql'
+  '../../migrations/postgres/003_account_community_enhancements.sql',
+  '../../migrations/postgres/004_admin_user_management.sql',
+  '../../migrations/postgres/005_collection_bulk_upload.sql',
+  '../../migrations/postgres/006_collection_completion.sql'
 ].map(relative => readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8')).join('\n')
-export const transferTables = [...schema.matchAll(/CREATE TABLE (\w+) \(/g)].map(match => match[1])
-const canonicalColumns = new Map([...schema.matchAll(/CREATE TABLE (\w+) \(([\s\S]*?)\n\);/g)].map(match => [match[1], new Set([...match[2].matchAll(/\b(\w+)\s+(?:TEXT|INTEGER|BYTEA)\b/g)].map(column => column[1]))]))
+const schemaTables = [...schema.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(/g)].map(match => match[1])
+// Collections must exist before upload_requests rows that reference them. Keep
+// all other canonical ordering intact so document and bulk-item dependencies
+// remain parent-before-child during an explicit transfer.
+export const transferTables = schemaTables.filter(name => name !== 'collections')
+transferTables.splice(transferTables.indexOf('upload_requests'), 0, 'collections')
+transferTables.splice(transferTables.indexOf('collection_sections'), 1)
+transferTables.splice(transferTables.indexOf('collection_documents'), 0, 'collection_sections')
+const canonicalColumns = new Map([...schema.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(([\s\S]*?)\n\);/g)].map(match => [match[1], new Set([...match[2].matchAll(/\b(\w+)\s+(?:TEXT|INTEGER|BYTEA)\b/g)].map(column => column[1]))]))
 for (const match of schema.matchAll(/ALTER TABLE (\w+) ADD COLUMN IF NOT EXISTS (\w+)/g)) canonicalColumns.get(match[1])?.add(match[2])
 canonicalColumns.get('file_assets').add('storage_key').add('storage_provider')
 

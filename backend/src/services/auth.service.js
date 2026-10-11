@@ -33,6 +33,12 @@ export async function login({ usernameOrEmail, password }) {
     throw error
   }
 
+  if (user.accountStatus !== 'ACTIVE') {
+    const error = new Error('This account is deactivated. Contact an administrator.')
+    error.status = 403
+    throw error
+  }
+
   if (config.emailVerificationEnforced && !user.isVerified) {
     const error = new Error('Please verify your email before signing in')
     error.status = 403
@@ -129,7 +135,7 @@ export async function refresh(refreshToken) {
   if (!session) return null
 
   const user = await findUserRecordById(session.userId)
-  if (!user) return null
+  if (!user || user.accountStatus !== 'ACTIVE') return null
 
   return {
     user: publicUser(user),

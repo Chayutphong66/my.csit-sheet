@@ -9,6 +9,7 @@ import { createProfileChangeRequest, followSummary, followingFeed, getPreference
 import { sendEmail } from '../services/email.service.js'
 import { storage } from '../services/storageAdapter.js'
 import crypto from 'node:crypto'
+import { listProfileCollections } from '../repositories/collection.repository.js'
 
 function safeDocument(document) {
   const { uploaderId, ...safe } = document
@@ -31,11 +32,12 @@ export async function profile(req, res) {
   if (!contributor.profilePublic && id !== req.user.id) return res.status(404).json({ message: 'Profile not found' })
   const documents = (await profileDocuments(id, req.user.id)).map(safeDocument)
   const isOwner = id === req.user.id
-  const [stars, requests, revisions, activity] = await Promise.all([
+  const [stars, requests, revisions, activity, collections] = await Promise.all([
     starredDocuments(id, req.user.id),
     isOwner ? findUploadRequestsByUserId(id) : [],
     isOwner ? listMyRevisions(id) : [],
-    profileActivity(id, req.user.id, documents)
+    profileActivity(id, req.user.id, documents),
+    listProfileCollections(id, isOwner)
   ])
   const follows = await followSummary(id, req.user.id)
   res.json({
@@ -43,6 +45,8 @@ export async function profile(req, res) {
     ...follows,
     isOwner,
     documents,
+    collections,
+    collectionCount: collections.length,
     stars: stars.map(safeDocument),
     requests: requests.map(({ id, title, fileName, documentType, courseName, createdAt, status, rejectionReason }) => ({ id, title, fileName, documentType, courseName, createdAt, status, rejectionReason })),
     revisions,

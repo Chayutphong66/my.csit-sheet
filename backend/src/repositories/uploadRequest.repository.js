@@ -5,8 +5,9 @@ import { createLectureFile, lectureHasFile } from './lectureFile.repository.js'
 import { createSheetFile, sheetHasFile } from './sheetFile.repository.js'
 import { getOrCreateFileAsset } from './fileAsset.repository.js'
 import { calculateContentFingerprint } from '../services/contentFingerprint.service.js'
-import { readFileBytes } from '../services/fileStorage.service.js'
+import { readFileBytes, storageReferenceSql } from '../services/fileStorage.service.js'
 import { ensureInitialVersion } from './documentVersion.repository.js'
+import { requireActiveCollection } from './collection.repository.js'
 import {
   calculateContributionScore,
   contributionBadges,
@@ -34,7 +35,7 @@ const requestSelect = `
     upload_requests.duplicate_status, upload_requests.rejection_type, upload_requests.file_hash,
     upload_requests.content_hash, upload_requests.file_asset_id, upload_requests.rejection_reason,
     upload_requests.decided_by, upload_requests.decided_at, upload_requests.created_at,
-    upload_requests.updated_at, upload_requests.completed_at,
+    upload_requests.updated_at, upload_requests.completed_at, upload_requests.collection_id,
       users.username AS username,
       COALESCE(NULLIF(users.display_name, ''), users.username) AS display_name,
       users.avatar_url AS avatar_url,
@@ -98,6 +99,7 @@ async function toUploadRequest(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completed_at,
+    collectionId: row.collection_id || null,
     hasFile: Boolean(row.has_file)
   }
 }
@@ -135,6 +137,7 @@ export async function createUploadRequest({
   courseOfferingId = null,
   programId = null,
   description = '',
+  collectionId = null,
   suggestionIds = []
 }) {
   const course = courseId ? await findCourseById(courseId) : null
@@ -167,15 +170,15 @@ export async function createUploadRequest({
       INSERT INTO upload_requests (
         id, user_id, lecture_id, sheet_id, title, file_name, file_size, file_type, file_data, file_asset_id,
         course_id, course_name, document_type, academic_year, semester, upload_date, instructor_id, instructor_name, course_offering_id, program_id, description,
-        file_hash, content_hash, normalized_title, duplicate_status, status, decided_by
+        file_hash, content_hash, normalized_title, duplicate_status, status, decided_by, collection_id
       )
       VALUES (@id, @userId, NULL, NULL, @title, @fileName, @fileSize, @fileType, NULL, @assetId,
         @courseId, @courseName, @documentType, @academicYear, @semester, @uploadDate, @instructorId, @instructorName,
-        @courseOfferingId, @programId, @description, @fileHash, @contentHash, @normalizedTitle, @duplicateStatus, 'PENDING', NULL)
+        @courseOfferingId, @programId, @description, @fileHash, @contentHash, @normalizedTitle, @duplicateStatus, 'PENDING', NULL, @collectionId)
     `).run({ id, userId, title, fileName, fileSize: Number(fileSize) || 0, fileType: fileType ?? '', assetId: asset?.id ?? null,
       courseId: course?.id ?? '', courseName: course?.name ?? '', documentType: normalizeDocumentType(documentType) ?? 'Sheet', academicYear,
       semester, uploadDate, instructorId: instructor?.id ?? '', instructorName: instructors.map(item => item.name).join(', '), courseOfferingId,
-      programId, description, fileHash, contentHash, normalizedTitle, duplicateStatus })
+      programId, description, fileHash, contentHash, normalizedTitle, duplicateStatus, collectionId })
     for (const teacher of instructors) await db.prepare('INSERT OR IGNORE INTO upload_request_teachers(upload_request_id,teacher_id) VALUES(?,?)').run(id, teacher.id)
     if (suggestionIds.length) {
       for (const suggestionId of suggestionIds) {
@@ -280,7 +283,7 @@ export async function findUploadRequestFileById(id) {
     .prepare(`
       SELECT upload_requests.file_name, upload_requests.file_type,
              COALESCE(file_assets.file_data, upload_requests.file_data) AS file_data,
-             upload_requests.file_asset_id, file_assets.blob_key
+             upload_requests.file_asset_id, ${storageReferenceSql()} AS blob_key
       FROM upload_requests
       LEFT JOIN file_assets ON file_assets.id = upload_requests.file_asset_id
       WHERE upload_requests.id = ?
@@ -496,7 +499,10 @@ export async function publishUploadRequest(id, { adminId = '' } = {}) {
 
     const file = await findUploadRequestFileById(id)
     if ((!existing || !existing.hasFile) && (!file || !file.fileData)) {
-      throw new Error('No uploaded file is available to publish')
+      const error = new Error('Uploaded file is unavailable. Verify storage access and retry approval.')
+      error.status = 409
+      error.expose = true
+      throw error
     }
 
     const subject = request.courseName || request.courseId || 'General'
@@ -597,7 +603,19 @@ export async function publishUploadRequest(id, { adminId = '' } = {}) {
       `).run(adminId || null, sheetId, id)
     }
 
-    return await findUploadRequestById(id)
+    const published = await findUploadRequestById(id)
+    const publishedId = isLectureDocument(request.documentType) ? published.lectureId : published.sheetId
+    if (request.collectionId && publishedId) {
+      const destination = await requireActiveCollection(request.collectionId)
+      if (destination.collectionType === 'COURSE' && destination.courseId !== request.courseId) {
+        const error = new Error(`Document course does not match COURSE Collection ${destination.courseCode}`)
+        error.status = 409; error.expose = true; throw error
+      }
+      await db.prepare(`INSERT OR IGNORE INTO collection_documents(collection_id,document_type,document_id,position)
+        SELECT ?,?,?,COALESCE(MAX(position),-1)+1 FROM collection_documents WHERE collection_id=?`)
+        .run(request.collectionId, normalizeDocumentType(request.documentType), publishedId, request.collectionId)
+    }
+    return published
   })
 }
 

@@ -230,10 +230,98 @@ if (!userCols.includes('avatar_storage_key')) db.exec('ALTER TABLE users ADD COL
 if (!userCols.includes('profile_public')) db.exec('ALTER TABLE users ADD COLUMN profile_public INTEGER NOT NULL DEFAULT 1')
 if (!userCols.includes('show_program')) db.exec('ALTER TABLE users ADD COLUMN show_program INTEGER NOT NULL DEFAULT 1')
 if (!userCols.includes('show_cohort')) db.exec('ALTER TABLE users ADD COLUMN show_cohort INTEGER NOT NULL DEFAULT 1')
+if (!userCols.includes('account_status')) db.exec("ALTER TABLE users ADD COLUMN account_status TEXT NOT NULL DEFAULT 'ACTIVE'")
+if (!userCols.includes('deactivated_at')) db.exec('ALTER TABLE users ADD COLUMN deactivated_at TEXT')
+if (!userCols.includes('deactivated_by')) db.exec('ALTER TABLE users ADD COLUMN deactivated_by TEXT')
+if (!userCols.includes('deactivation_reason')) db.exec("ALTER TABLE users ADD COLUMN deactivation_reason TEXT NOT NULL DEFAULT ''")
 db.exec(`
   UPDATE users SET display_name = username WHERE trim(display_name) = '';
   UPDATE users SET email_verified_at = COALESCE(email_verified_at, created_at) WHERE is_verified = 1;
   CREATE INDEX IF NOT EXISTS idx_users_public_identity ON users(lower(username), lower(display_name));
+  CREATE INDEX IF NOT EXISTS idx_users_account_status ON users(account_status);
+  CREATE TABLE IF NOT EXISTS admin_audit_logs (
+    id TEXT PRIMARY KEY,
+    actor_user_id TEXT NOT NULL REFERENCES users(id),
+    target_user_id TEXT NOT NULL REFERENCES users(id),
+    action TEXT NOT NULL CHECK(action IN ('USER_UPDATED','USER_DEACTIVATED','USER_REACTIVATED')),
+    changes_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_admin_audit_target_created ON admin_audit_logs(target_user_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_admin_audit_actor_created ON admin_audit_logs(actor_user_id, created_at DESC);
+`)
+
+// Phase 4 is additive and SQLite-first for local development. Migration 005
+// contains the independently reviewed PostgreSQL form of these tables.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS collections (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE','ARCHIVED')),
+    created_by TEXT NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS collection_documents (
+    collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    document_type TEXT NOT NULL CHECK(document_type IN ('Lecture','Sheet')),
+    document_id TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0,
+    added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(collection_id, document_type, document_id)
+  );
+  CREATE TABLE IF NOT EXISTS bulk_upload_jobs (
+    id TEXT PRIMARY KEY, created_by TEXT NOT NULL REFERENCES users(id),
+    collection_id TEXT REFERENCES collections(id),
+    status TEXT NOT NULL DEFAULT 'PROCESSING' CHECK(status IN ('PROCESSING','COMPLETED','PARTIAL','FAILED')),
+    total_items INTEGER NOT NULL DEFAULT 0, succeeded_items INTEGER NOT NULL DEFAULT 0,
+    failed_items INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS bulk_upload_items (
+    id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES bulk_upload_jobs(id) ON DELETE CASCADE,
+    client_key TEXT NOT NULL, request_id TEXT REFERENCES upload_requests(id),
+    status TEXT NOT NULL CHECK(status IN ('READY','DUPLICATE','FAILED')),
+    error_code TEXT NOT NULL DEFAULT '', error_message TEXT NOT NULL DEFAULT '',
+    attempt_count INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(job_id, client_key)
+  );
+  CREATE INDEX IF NOT EXISTS idx_collection_documents_document ON collection_documents(document_type, document_id);
+  CREATE INDEX IF NOT EXISTS idx_bulk_upload_jobs_creator ON bulk_upload_jobs(created_by, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_bulk_upload_items_job ON bulk_upload_items(job_id, created_at);
+`)
+
+const uploadRequestPhase4Cols = db.prepare('PRAGMA table_info(upload_requests)').all().map((column) => column.name)
+if (!uploadRequestPhase4Cols.includes('collection_id')) db.exec('ALTER TABLE upload_requests ADD COLUMN collection_id TEXT REFERENCES collections(id)')
+
+// Phase 4 completion mirrors PostgreSQL migration 006 without rewriting legacy
+// collection rows. Legacy admin collections remain drafts owned by their creator.
+const collectionCompletionCols = db.prepare('PRAGMA table_info(collections)').all().map((column) => column.name)
+if (!collectionCompletionCols.includes('collection_type')) db.exec("ALTER TABLE collections ADD COLUMN collection_type TEXT NOT NULL DEFAULT 'MIXED' CHECK(collection_type IN ('COURSE','MIXED'))")
+if (!collectionCompletionCols.includes('course_id')) db.exec('ALTER TABLE collections ADD COLUMN course_id TEXT REFERENCES courses(id)')
+if (!collectionCompletionCols.includes('publication_status')) db.exec("ALTER TABLE collections ADD COLUMN publication_status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(publication_status IN ('DRAFT','PUBLISHED','ARCHIVED'))")
+if (!collectionCompletionCols.includes('visibility')) db.exec("ALTER TABLE collections ADD COLUMN visibility TEXT NOT NULL DEFAULT 'AUTHENTICATED' CHECK(visibility IN ('AUTHENTICATED','PRIVATE'))")
+if (!collectionCompletionCols.includes('moderation_status')) db.exec("ALTER TABLE collections ADD COLUMN moderation_status TEXT NOT NULL DEFAULT 'APPROVED' CHECK(moderation_status IN ('PENDING','APPROVED','REJECTED'))")
+if (!collectionCompletionCols.includes('cover_file_asset_id')) db.exec('ALTER TABLE collections ADD COLUMN cover_file_asset_id TEXT REFERENCES file_assets(id)')
+if (!collectionCompletionCols.includes('version')) db.exec('ALTER TABLE collections ADD COLUMN version INTEGER NOT NULL DEFAULT 0')
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS collection_sections (
+    id TEXT PRIMARY KEY, collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    title TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(collection_id,id)
+  );
+`)
+const collectionDocumentCompletionCols = db.prepare('PRAGMA table_info(collection_documents)').all().map((column) => column.name)
+if (!collectionDocumentCompletionCols.includes('section_id')) db.exec('ALTER TABLE collection_documents ADD COLUMN section_id TEXT REFERENCES collection_sections(id) ON DELETE SET NULL')
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_collections_owner_status ON collections(created_by,publication_status,updated_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_collections_discovery ON collections(publication_status,moderation_status,collection_type,course_id,updated_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_collection_sections_order ON collection_sections(collection_id,position);
+  CREATE INDEX IF NOT EXISTS idx_collection_documents_order ON collection_documents(collection_id,section_id,position);
 `)
 
 db.exec(`

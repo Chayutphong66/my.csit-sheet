@@ -8,16 +8,18 @@ import ProfileSidebar from './ProfileSidebar.vue'
 import ProfileOverview from './ProfileOverview.vue'
 import ProfileDocumentList from './ProfileDocumentList.vue'
 import ProfileUploadRequests from './ProfileUploadRequests.vue'
+import ProfileCollectionList from './ProfileCollectionList.vue'
 import './profile.css'
 
 const props = defineProps({ own: Boolean }); const auth = useAuthStore(); const route = useRoute()
 const username = computed(() => props.own ? auth.user?.username : route.params.username)
 const profile = ref(null); const loading = ref(true); const error = ref(''); const actionError = ref(''); const busy = ref(''); const saving = ref(false)
 let generation = 0
-const active = computed(() => ['documents', 'requests', 'stars', 'contributions'].includes(route.query?.tab) ? route.query.tab : 'overview')
+const active = computed(() => ['documents', 'collections', 'requests', 'stars', 'contributions'].includes(route.query?.tab) ? route.query.tab : 'overview')
 const tabs = computed(() => [
   { key: 'overview', label: 'Overview' },
   { key: 'documents', label: 'Documents', count: profile.value?.documents.length },
+  { key: 'collections', label: 'Collections', count: profile.value?.collections?.length },
   { key: 'contributions', label: 'Contributions', count: profile.value?.isOwner ? profile.value.revisions.length : undefined },
   { key: 'requests', label: 'Upload Requests', count: profile.value?.isOwner ? profile.value.requests.length : undefined },
   { key: 'stars', label: 'Stars', count: profile.value?.stars.length }
@@ -26,7 +28,7 @@ async function load() {
   const current = ++generation; loading.value = true; error.value = ''
   try {
     const result = await contributorApi.profile(username.value)
-    if (current === generation) profile.value = { ...result, documents: result.documents || [], stars: result.stars || [], requests: result.requests || [], revisions: result.revisions || [], activity: result.activity || [], badges: result.badges || [] }
+    if (current === generation) profile.value = { ...result, documents: result.documents || [], collections: result.collections || [], stars: result.stars || [], requests: result.requests || [], revisions: result.revisions || [], activity: result.activity || [], badges: result.badges || [] }
   } catch (caught) { if (current === generation) error.value = caught.message }
   finally { if (current === generation) loading.value = false }
 }
@@ -34,7 +36,7 @@ async function star(document) {
   if (busy.value) return
   const current = generation; const previous = Boolean(document.starredByMe); const count = document.starCount || 0
   let saved = false; busy.value = `${document.documentType}:${document.id}`; actionError.value = ''; document.starredByMe = !previous; document.starCount = count + (previous ? -1 : 1)
-  try { await contributorApi.star(document, !previous); saved = true; const result = await contributorApi.profile(username.value); if (current === generation) profile.value = { ...result, documents: result.documents || [], stars: result.stars || [], requests: result.requests || [], revisions: result.revisions || [], activity: result.activity || [], badges: result.badges || [] } }
+  try { await contributorApi.star(document, !previous); saved = true; const result = await contributorApi.profile(username.value); if (current === generation) profile.value = { ...result, documents: result.documents || [], collections: result.collections || [], stars: result.stars || [], requests: result.requests || [], revisions: result.revisions || [], activity: result.activity || [], badges: result.badges || [] } }
   catch (caught) { if (current === generation) { if (!saved) { document.starredByMe = previous; document.starCount = count } actionError.value = caught.message } }
   finally { busy.value = '' }
 }
@@ -45,7 +47,7 @@ async function act(document, kind) {
     if (kind === 'view') openDocumentBlob((await documentApi.view(document)).blob)
     else if (kind === 'download') downloadDocumentBlob((await documentApi.download(document)).blob, document.fileName)
     else { const state = await documentApi.helpful(document, !document.helpfulByMe); document.helpfulByMe = state.helpful; document.helpfulCount = state.helpfulCount }
-    const result = await contributorApi.profile(username.value); if (current === generation) profile.value = result
+    const result = await contributorApi.profile(username.value); if (current === generation) profile.value = { ...result, documents: result.documents || [], collections: result.collections || [], stars: result.stars || [], requests: result.requests || [], revisions: result.revisions || [], activity: result.activity || [], badges: result.badges || [] }
   } catch (caught) { if (current === generation) actionError.value = caught.message }
   finally { busy.value = '' }
 }
@@ -64,6 +66,7 @@ watch(username, load, { immediate: true }); onBeforeUnmount(() => { generation++
         <p v-if="actionError" class="form-error" role="alert">{{ actionError }}</p>
         <ProfileOverview v-if="active === 'overview'" :profile="profile" :busy="busy" @star="star" @view="act($event, 'view')" />
         <ProfileDocumentList v-else-if="active === 'documents' || active === 'stars'" :key="active" :documents="active === 'stars' ? profile.stars : profile.documents" :starred="active === 'stars'" :busy="busy" @star="star" @view="act($event, 'view')" @download="act($event, 'download')" @helpful="act($event, 'helpful')" />
+        <ProfileCollectionList v-else-if="active === 'collections'" :collections="profile.collections" :is-owner="profile.isOwner" />
         <ProfileUploadRequests v-else :requests="active === 'contributions' ? [] : profile.requests" :revisions="active === 'contributions' ? profile.revisions : []" :is-owner="profile.isOwner" />
       </div>
     </div>

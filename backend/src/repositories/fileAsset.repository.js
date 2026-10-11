@@ -76,8 +76,9 @@ export async function countFileAssetReferences(id) {
       (SELECT COUNT(*) FROM lecture_files WHERE file_asset_id = ?) +
       (SELECT COUNT(*) FROM sheet_files WHERE file_asset_id = ?) +
       (SELECT COUNT(*) FROM document_versions WHERE file_asset_id = ?) +
-      (SELECT COUNT(*) FROM users WHERE avatar_storage_key = 'sha256/' || (SELECT binary_hash FROM file_assets WHERE id = ?)) AS count
-  `).get(id, id, id, id, id)
+      (SELECT COUNT(*) FROM users WHERE avatar_storage_key = 'sha256/' || (SELECT binary_hash FROM file_assets WHERE id = ?)) +
+      (SELECT COUNT(*) FROM collections WHERE cover_file_asset_id = ?) AS count
+  `).get(id, id, id, id, id, id)
   return Number(row.count)
 }
 
@@ -89,6 +90,7 @@ export async function deleteOrphanFileAssets() {
       AND NOT EXISTS (SELECT 1 FROM sheet_files WHERE sheet_files.file_asset_id = file_assets.id)
       AND NOT EXISTS (SELECT 1 FROM document_versions WHERE document_versions.file_asset_id = file_assets.id)
       AND NOT EXISTS (SELECT 1 FROM users WHERE users.avatar_storage_key = 'sha256/' || file_assets.binary_hash)
+      AND NOT EXISTS (SELECT 1 FROM collections WHERE collections.cover_file_asset_id = file_assets.id)
     `
     const orphans = await db.prepare(`SELECT id FROM file_assets WHERE ${unreferenced}${databaseDialect === 'postgres' ? ' FOR UPDATE' : ''}`).all()
     let deleted = 0

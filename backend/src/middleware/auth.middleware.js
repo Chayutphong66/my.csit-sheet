@@ -21,6 +21,13 @@ export async function requireAuth(req, _res, next) {
     return
   }
 
+  if (user.accountStatus !== 'ACTIVE') {
+    const error = new Error('This account is deactivated')
+    error.status = 403
+    next(error)
+    return
+  }
+
   req.user = user
   next()
 }

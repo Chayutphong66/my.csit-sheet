@@ -10,7 +10,7 @@ import AdminRevisionPanel from './AdminRevisionPanel.vue'
 import AdminProfileChangePanel from './AdminProfileChangePanel.vue'
 
 const requests = ref([]), loading = ref(true), error = ref(''), selectedId = ref('')
-const previewUrl = ref(''), previewLoading = ref(false), decisionBusy = ref(false)
+const previewUrl = ref(''), previewLoading = ref(false), previewError = ref(''), decisionBusy = ref(false)
 const dialogMode = ref(''), rejectionReason = ref(''), decisionId = ref(''), feedback = ref('')
 const REVIEW_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'ALL']
 function initialReviewStatus() {
@@ -83,13 +83,13 @@ async function changeStatus(value) {
 }
 async function selectRequest(request) {
   if (decisionBusy.value || dialogMode.value || disposed) return
-  selectedId.value = request.id; clearPreview(); previewLoading.value = true; error.value = ''
+  selectedId.value = request.id; clearPreview(); previewLoading.value = true; previewError.value = ''; error.value = ''
   const generation = previewGeneration
   try {
     const blob = await adminApi.adminDownloadUploadRequestFile(request.id)
     if (!disposed && generation === previewGeneration) previewUrl.value = URL.createObjectURL(blob)
   } catch {
-    if (!disposed && generation === previewGeneration) error.value = 'ไม่สามารถโหลดตัวอย่างไฟล์ได้ แต่ยังดูรายละเอียดรายการได้'
+    if (!disposed && generation === previewGeneration) previewError.value = 'ไม่สามารถโหลดตัวอย่างไฟล์ได้ แต่ยังดูรายละเอียดรายการได้'
   } finally {
     if (!disposed && generation === previewGeneration) previewLoading.value = false
   }
@@ -137,7 +137,7 @@ onBeforeUnmount(() => { disposed = true; clearPreview() })
     </header>
 
     <div class="request-tabs review-status-tabs" role="tablist" aria-label="กรองสถานะรายการตรวจสอบ">
-      <button v-for="value in ['PENDING','APPROVED','REJECTED','ALL']" :key="value" class="tab-button" :class="{ 'tab-button--active': selectedStatus === value }" role="tab" :aria-selected="selectedStatus === value" @click="changeStatus(value)">{{ value === 'ALL' ? 'ทั้งหมด' : value }} ({{ totalCounts[value] }})</button>
+      <button v-for="value in ['PENDING','APPROVED','REJECTED','ALL']" :key="value" class="tab-button" :class="{ 'tab-button--active': selectedStatus === value }" role="tab" :data-review-filter="value" :aria-selected="selectedStatus === value" @click="changeStatus(value)">{{ value === 'ALL' ? 'ทั้งหมด' : value }} ({{ totalCounts[value] }})</button>
     </div>
     <div class="queue-summary" aria-label="สรุปคิว">
       <article><span>รอตรวจสอบ</span><strong>{{ totalCounts.PENDING }}</strong></article>
@@ -167,11 +167,11 @@ onBeforeUnmount(() => { disposed = true; clearPreview() })
         </aside>
         <section v-if="selected" class="approval-workspace" aria-label="รายละเอียดการตรวจสอบเอกสาร">
           <div class="approval-workspace__grid">
-            <section class="preview-panel"><div class="section-heading"><div><p class="eyebrow">Document preview</p><h2>ตัวอย่างเอกสาร</h2></div><a v-if="previewUrl" class="text-link" :href="previewUrl" target="_blank" rel="noopener noreferrer">เปิดแท็บใหม่ ↗</a></div><div v-if="previewLoading" class="preview-placeholder">กำลังโหลดตัวอย่าง…</div><iframe v-else-if="previewUrl" :src="previewUrl" :title="`ตัวอย่าง ${selected.fileName}`"></iframe><div v-else class="preview-placeholder">ไม่มีตัวอย่างไฟล์</div></section>
+            <section class="preview-panel"><div class="section-heading"><div><p class="eyebrow">Document preview</p><h2>ตัวอย่างเอกสาร</h2></div><a v-if="previewUrl" class="text-link" :href="previewUrl" target="_blank" rel="noopener noreferrer">เปิดแท็บใหม่ ↗</a></div><div v-if="previewLoading" class="preview-placeholder">กำลังโหลดตัวอย่าง…</div><iframe v-else-if="previewUrl" :src="previewUrl" :title="`ตัวอย่าง ${selected.fileName}`"></iframe><div v-else class="preview-placeholder">{{ previewError || 'ไม่มีตัวอย่างไฟล์' }}</div></section>
             <section class="metadata-panel"><p class="eyebrow">Submission details</p><h2>{{ selected.title }}</h2><UserIdentity :username="selected.username" :display-name="selected.displayName" :avatar-url="selected.avatarUrl" :program="selected.contributorProgram" :cohort="selected.contributorCohort" :linked="false" /><dl class="metadata-list"><div><dt>สถานะ</dt><dd><StatusBadge :value="reviewStatus(selected)" /></dd></div><div><dt>ไฟล์</dt><dd class="wrap-anywhere">{{ selected.fileName }}</dd></div><div v-if="selected.description"><dt>คำอธิบาย</dt><dd class="wrap-anywhere">{{ selected.description }}</dd></div><div><dt>สาขา</dt><dd>{{ selected.programName || '—' }}</dd></div><div><dt>รายวิชา</dt><dd>{{ selected.courseName || '—' }}</dd></div><div><dt>ประเภท</dt><dd>{{ documentTypeLabel(selected.documentType) }}</dd></div><div><dt>ปี / ภาคเรียน</dt><dd>{{ selected.academicYear || '—' }} / {{ selected.semester || '—' }}</dd></div><div><dt>วันที่ส่ง</dt><dd>{{ new Date(selected.createdAt).toLocaleDateString('th-TH') }}</dd></div><div v-if="selected.decidedByUsername"><dt>ตรวจโดย</dt><dd>@{{ selected.decidedByUsername }}</dd></div><div v-if="selected.decidedAt"><dt>วันที่ตรวจ</dt><dd>{{ new Date(selected.decidedAt).toLocaleDateString('th-TH') }}</dd></div><div v-if="selected.rejectionReason"><dt>เหตุผล</dt><dd class="wrap-anywhere">{{ selected.rejectionReason }}</dd></div></dl></section>
           </div>
           <section v-if="selected.duplicateStatus !== 'NONE'" class="duplicate-comparison"><div class="section-heading"><div><p class="eyebrow">Duplicate review</p><h2>{{ duplicateLabel(selected.duplicateStatus) }}</h2></div><StatusBadge :value="selected.duplicateStatus" duplicate /></div><div class="comparison-grid"><article class="duplicate-card duplicate-card--new"><span class="type-chip">รายการใหม่</span><h3>{{ selected.title }}</h3><p>{{ selected.fileName }}</p><small>{{ selected.courseName }} · {{ selected.academicYear }}/{{ selected.semester }} · @{{ selected.username }}</small></article><article v-for="match in selected.duplicateMatches" :key="`${match.source}-${match.id}`" class="duplicate-card"><span class="type-chip">รายการที่พบ</span><h3>{{ match.title }}</h3><p>{{ match.fileName }}</p><small>{{ duplicateLabel(match.matchType) }} · Binary {{ match.binaryMatch ? 'ตรงกัน' : 'ต่างกัน' }} · Content {{ match.contentMatch ? 'ตรงกัน' : 'ต่างกัน' }}</small><div v-if="match.publicDocumentId || match.source === 'REQUEST'" class="table-actions"><button class="button button--small button--ghost" @click="openExisting(match)">ดูรายการเดิม</button><button class="button button--small button--ghost" @click="openExisting(match, true)">ดาวน์โหลด</button></div></article></div></section>
-          <footer v-if="reviewStatus(selected) === 'PENDING'" class="approval-actions"><div><strong>พร้อมตัดสินใจหรือยัง?</strong><p>ตรวจไฟล์ ข้อมูลรายวิชา และสัญญาณเอกสารซ้ำให้ครบก่อน</p></div><div class="table-actions"><button class="button button--danger" type="button" :disabled="decisionBusy" @click="openDecision('reject')">ปฏิเสธ</button><button v-if="selected.duplicateStatus !== 'NONE'" class="button button--danger-soft" type="button" :disabled="decisionBusy" @click="openDecision('duplicate')">ปฏิเสธว่าเอกสารซ้ำ</button><button class="button button--primary" type="button" :disabled="decisionBusy" @click="openDecision('approve')">อนุมัติและเผยแพร่</button></div></footer>
+          <footer v-if="reviewStatus(selected) === 'PENDING'" class="approval-actions"><div><strong>พร้อมตัดสินใจหรือยัง?</strong><p>ตรวจไฟล์ ข้อมูลรายวิชา และสัญญาณเอกสารซ้ำให้ครบก่อน</p></div><div class="table-actions"><button class="button button--danger" data-review-action="reject" type="button" :disabled="decisionBusy" @click="openDecision('reject')">ปฏิเสธ</button><button v-if="selected.duplicateStatus !== 'NONE'" class="button button--danger-soft" data-review-action="reject-duplicate" type="button" :disabled="decisionBusy" @click="openDecision('duplicate')">ปฏิเสธว่าเอกสารซ้ำ</button><button class="button button--primary" data-review-action="approve" type="button" :disabled="decisionBusy" @click="openDecision('approve')">อนุมัติและเผยแพร่</button></div></footer>
         </section>
       </div>
     </section>

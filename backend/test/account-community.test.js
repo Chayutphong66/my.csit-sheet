@@ -13,6 +13,7 @@ process.env.DATABASE_PATH = path.join(mkdtempSync(path.join(tmpdir(), 'csit-acco
 const { default: app } = await import('../src/app.js')
 const { db, closeDatabase } = await import('../src/data/databaseClient.js')
 const { issueAccountToken } = await import('../src/repositories/accountToken.repository.js')
+const { listConnections } = await import('../src/repositories/community.repository.js')
 const server = app.listen(0, '127.0.0.1'); await once(server, 'listening')
 const base = `http://127.0.0.1:${server.address().port}/api`
 test.after(async () => { await new Promise(resolve => server.close(resolve)); await closeDatabase() })
@@ -62,6 +63,18 @@ test('follow constraints, privacy-safe counts, and follow/unfollow are consisten
   const duplicate = await api('/contributors/student01/follow', { method: 'PUT', token: user2, body: { following: true } })
   assert.equal(first.data.followersCount, 1); assert.equal(duplicate.data.followersCount, 1)
   assert.equal((await api('/contributors/student01/followers', { token: user1 })).data.length, 1)
+  const target = await db.prepare("SELECT id FROM users WHERE username='student01'").get()
+  const viewer = await db.prepare("SELECT id FROM users WHERE username='student02'").get()
+  const originalPrepare = db.prepare
+  let statements = 0
+  db.prepare = (...args) => { statements += 1; return originalPrepare(...args) }
+  try {
+    const connections = await listConnections(target.id, 'followers', viewer.id)
+    assert.equal(connections.length, 1)
+    assert.equal(statements, 1, 'connection summaries must not issue per-person queries')
+  } finally {
+    db.prepare = originalPrepare
+  }
   assert.equal((await api('/contributors/student01/follow', { method: 'PUT', token: user2, body: { following: false } })).data.followersCount, 0)
 })
 
@@ -84,7 +97,15 @@ test('avatar validates the exact size message and display-name cooldown is serve
   const tooLarge = await api('/contributors/me/avatar', { method: 'POST', token: user, body: { fileData: Buffer.alloc(1024 * 1024 + 1).toString('base64') } })
   assert.equal(tooLarge.response.status, 400); assert.equal(tooLarge.data.message, 'Please upload a picture smaller than 1 MB.')
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nNwAAAAASUVORK5CYII='
-  assert.equal((await api('/contributors/me/avatar', { method: 'POST', token: user, body: { fileData: png } })).response.status, 200)
+  const uploaded = await api('/contributors/me/avatar', { method: 'POST', token: user, body: { fileData: png } })
+  assert.equal(uploaded.response.status, 200)
+  const relogged = await login('student02')
+  const settings = await api('/contributors/me/settings', { token: relogged })
+  assert.equal(settings.data.profile.avatarUrl, uploaded.data.avatarUrl)
+  const avatar = await fetch(`${base.replace(/\/api$/, '')}${uploaded.data.avatarUrl}`)
+  assert.equal(avatar.status, 200)
+  assert.equal(avatar.headers.get('content-type'), 'image/png')
+  assert.deepEqual(Buffer.from(await avatar.arrayBuffer()), Buffer.from(png, 'base64'))
   assert.equal((await api('/contributors/me', { method: 'PATCH', token: user, body: { displayName: 'Cooldown Name' } })).response.status, 200)
   assert.equal((await api('/contributors/me', { method: 'PATCH', token: user, body: { displayName: 'Bypass Attempt' } })).response.status, 409)
 })

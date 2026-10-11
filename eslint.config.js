@@ -7,7 +7,7 @@ export default [
   js.configs.recommended,
   ...vue.configs['flat/essential'],
   {
-    files: ['backend/**/*.js', 'eslint.config.js'],
+    files: ['backend/**/*.js', 'scripts/**/*.mjs', 'eslint.config.js'],
     languageOptions: { globals: globals.node }
   },
   {

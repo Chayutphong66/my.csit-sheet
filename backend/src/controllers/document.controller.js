@@ -22,6 +22,7 @@ import {
 } from '../repositories/documentVersion.repository.js'
 import { withStars } from '../repositories/profile.repository.js'
 import { discardUploadSession, resolveUploadBody } from '../services/uploadSession.service.js'
+import { discoverCollections } from '../repositories/collection.repository.js'
 
 function notFound(message = 'Document not found') {
   const error = new Error(message)
@@ -53,7 +54,8 @@ export async function getCourseYears(req, res, next) {
   try { documentType = requestedType(req) } catch (error) { return next(error) }
   const course = await findCourseSummary(req.params.id, documentType)
   if (!course) return next(notFound('Course not found'))
-  res.json({ course, documentType: documentType || null, years: await listCourseYears(course.id, documentType) })
+  const discovered = await discoverCollections({ courseId: course.id, limit: 20 })
+  res.json({ course, documentType: documentType || null, years: await listCourseYears(course.id, documentType), collections: discovered.collections })
 }
 
 export async function getCourseYear(req, res, next) {
@@ -78,7 +80,11 @@ export async function getCourseYear(req, res, next) {
 export async function search(req, res, next) {
   try {
     const documentType = requestedType(req)
-    res.json({ query: String(req.query.q ?? '').trim(), documentType: documentType || null, documents: (await searchDocuments(req.query.q, documentType, req.user.id)).map(publicDocument) })
+    const [documents, collectionResult] = await Promise.all([
+      searchDocuments(req.query.q, documentType, req.user.id),
+      discoverCollections({ query: req.query.q, page: req.query.page, limit: req.query.limit })
+    ])
+    res.json({ query: String(req.query.q ?? '').trim(), documentType: documentType || null, documents: documents.map(publicDocument), collections: collectionResult.collections, page: collectionResult.page, limit: collectionResult.limit })
   } catch (error) { next(error) }
 }
 

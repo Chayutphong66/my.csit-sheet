@@ -177,3 +177,18 @@ export async function lockAssetHash(hash) {
   if (!transactionContext.getStore()) throw new Error('Asset locking requires a transaction')
   if (isPostgres) await db.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?,0))').get(hash)
 }
+
+export async function lockAdminAccounts() {
+  if (!transactionContext.getStore()) throw new Error('Admin account locking requires a transaction')
+  if (isPostgres) await db.prepare("SELECT id FROM users WHERE role='ADMIN' ORDER BY id FOR UPDATE").all()
+}
+
+export async function lockBulkUploadItem(jobId, clientKey) {
+  if (!transactionContext.getStore()) throw new Error('Bulk upload item locking requires a transaction')
+  if (isPostgres) await db.prepare('SELECT id FROM bulk_upload_items WHERE job_id=? AND client_key=? FOR UPDATE').get(jobId, clientKey)
+}
+
+export async function lockCollection(id) {
+  if (!transactionContext.getStore()) throw new Error('Collection locking requires a transaction')
+  if (isPostgres) await db.prepare('SELECT id FROM collections WHERE id=? FOR UPDATE').get(id)
+}

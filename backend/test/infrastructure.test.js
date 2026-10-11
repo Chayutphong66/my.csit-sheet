@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -9,9 +9,10 @@ import { EventEmitter } from 'node:events'
 import { once } from 'node:events'
 import { toPostgresQuery } from '../src/data/postgresSql.js'
 import { requiredSchema, verifySchema } from '../src/data/schemaRequirements.js'
-import { applyPostgresMigrations } from '../src/data/postgresMigrations.js'
+import { applyPostgresMigrations, migrationDirectory } from '../src/data/postgresMigrations.js'
 import { inspectSqlite, transferSqlite } from '../src/data/sqliteTransfer.js'
 import { attachGracefulShutdown } from '../src/services/serverLifecycle.js'
+import { storageReferenceSql } from '../src/services/fileStorage.service.js'
 
 process.env.NODE_ENV = 'test'
 process.env.DATABASE_DRIVER = 'sqlite'
@@ -97,6 +98,12 @@ test('configuration is explicit, bounded, provider neutral and fails closed', ()
   assert.deepEqual(railwayProduction.allowedOrigins, ['https://my-csit-sheet.up.railway.app'])
 })
 
+test('storage readers prefer the provider-neutral Supabase reference and retain legacy compatibility', () => {
+  assert.equal(storageReferenceSql('assets', 'supabase'), 'COALESCE(assets.storage_key, assets.blob_key)')
+  assert.equal(storageReferenceSql('assets', 'database'), 'assets.blob_key')
+  assert.equal(storageReferenceSql('assets', 'netlify'), 'assets.blob_key')
+})
+
 test('production startup reports missing configuration without touching SQLite', () => {
   const env = { ...process.env, NODE_ENV: 'production', DATABASE_DRIVER: 'postgres', DATABASE_URL: '', STORAGE_DRIVER: 'supabase' }
   const result = spawnSync(process.execPath, ['src/server.js'], { cwd: path.resolve(import.meta.dirname, '..'), env, encoding: 'utf8', timeout: 10000 })
@@ -145,18 +152,43 @@ function fakeMigrationPool({ fail = false } = {}) {
 
 test('migration runner uses a session lock, ledger, checksums, transactions and repeat no-op', async () => {
   const fake = fakeMigrationPool()
-  assert.deepEqual(await applyPostgresMigrations(fake.pool), ['001_initial_schema.sql', '002_storage_references.sql', '003_account_community_enhancements.sql'])
+  const expected = readdirSync(migrationDirectory).filter(name => /^\d+.*\.sql$/.test(name)).sort()
+  assert.deepEqual(await applyPostgresMigrations(fake.pool), expected)
   assert.deepEqual(await applyPostgresMigrations(fake.pool), [])
   assert.equal(fake.releases, 2)
   assert.match(fake.commands[0], /pg_advisory_lock/)
   assert.match(fake.commands.at(-1), /pg_advisory_unlock/)
-  assert.equal(fake.commands.filter(sql => sql === 'COMMIT').length, 3)
+  assert.equal(fake.commands.filter(sql => sql === 'COMMIT').length, expected.length)
   fake.history[0].checksum = 'changed'
   await assert.rejects(applyPostgresMigrations(fake.pool), /history differs/)
   const failing = fakeMigrationPool({ fail: true })
   await assert.rejects(applyPostgresMigrations(failing.pool), /Simulated/)
   assert.equal(failing.history.length, 0)
   assert.ok(failing.commands.includes('ROLLBACK')); assert.equal(failing.releases, 1)
+})
+
+test('Phase 4 PostgreSQL migration is additive and declares every compatibility table', () => {
+  const migration = readFileSync(path.join(migrationDirectory, '005_collection_bulk_upload.sql'), 'utf8')
+  assert.doesNotMatch(migration, /^\s*(?:DROP|TRUNCATE|DELETE)\b/im)
+  for (const table of ['collections', 'collection_documents', 'bulk_upload_jobs', 'bulk_upload_items']) {
+    assert.match(migration, new RegExp(`CREATE TABLE ${table}\\b`))
+  }
+  assert.match(migration, /ALTER TABLE upload_requests ADD COLUMN IF NOT EXISTS collection_id/)
+  assert.match(migration, /REFERENCES users\(id\)/)
+  assert.match(migration, /REFERENCES collections\(id\)/)
+})
+
+test('Phase 4 completion migration is additive, legacy-safe, and reader-ready', () => {
+  const migration = readFileSync(path.join(migrationDirectory, '006_collection_completion.sql'), 'utf8')
+  assert.doesNotMatch(migration, /^\s*(?:DROP|TRUNCATE|DELETE|UPDATE)\b/im)
+  assert.match(migration, /CREATE TABLE collection_sections\b/)
+  for (const column of ['collection_type', 'course_id', 'publication_status', 'visibility', 'moderation_status', 'cover_file_asset_id', 'version']) {
+    assert.match(migration, new RegExp(`ALTER TABLE collections ADD COLUMN IF NOT EXISTS ${column}\\b`))
+  }
+  assert.match(migration, /publication_status TEXT NOT NULL DEFAULT 'DRAFT'/)
+  assert.match(migration, /collection_type = 'COURSE' AND course_id IS NOT NULL/)
+  assert.match(migration, /collection_documents ADD COLUMN IF NOT EXISTS section_id/)
+  assert.match(migration, /REFERENCES file_assets\(id\)/)
 })
 
 test('SQLite transactions serialize concurrent callers and roll back failed writes', async () => {

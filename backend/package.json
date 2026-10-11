@@ -18,7 +18,9 @@
     "db:cleanup-files": "node src/data/cleanupFileAssets.js",
     "db:storage-report": "node src/data/storageReport.js",
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "test:postgres": "node --test test/postgres-integration.test.js",
+    "test:external-storage": "node --test test/external-storage.integration.test.js"
   },
   "dependencies": {
     "@netlify/blobs": "^11.1.3",

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { db, lockDocument, withTransaction, lockAssetHash } from '../data/databaseClient.js'
-import { readFileBytes } from '../services/fileStorage.service.js'
+import { readFileBytes, storageReferenceSql } from '../services/fileStorage.service.js'
 import { getOrCreateFileAsset } from './fileAsset.repository.js'
 
 export const REVISION_TYPES = Object.freeze([
@@ -86,7 +86,7 @@ export async function findCurrentDocumentVersion(typeValue, documentId) {
 
 export async function findVersionFile(versionId, { approvedOnly = true } = {}) {
   const row = await db.prepare(`SELECT versions.id,versions.status,versions.original_filename,versions.mime_type,
-    versions.file_size,assets.file_data,assets.blob_key FROM document_versions versions
+    versions.file_size,assets.file_data,${storageReferenceSql('assets')} AS blob_key FROM document_versions versions
     JOIN file_assets assets ON assets.id=versions.file_asset_id WHERE versions.id=?`).get(versionId)
   if (!row || (approvedOnly && row.status !== 'APPROVED')) return null
   const fileData = row.file_data || await readFileBytes(row.blob_key)

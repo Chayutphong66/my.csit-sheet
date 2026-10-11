@@ -9,6 +9,7 @@ import { documentTypeLabel } from '@/services/terminology'
 const query = ref('')
 const documents = ref([])
 const contributors = ref([])
+const collections = ref([])
 const loading = ref(false)
 const error = ref('')
 const searched = ref(false)
@@ -21,6 +22,7 @@ async function search() {
   try {
     const [documentResult, contributorResult] = await Promise.all([documentApi.search(term), contributorApi.search(term.replace(/^@/, ''))])
     documents.value = documentResult.documents
+    collections.value = documentResult.collections || []
     contributors.value = contributorResult.contributors
     searched.value = true
   } catch { error.value = 'ค้นหาไม่สำเร็จ กรุณาลองใหม่อีกครั้ง' } finally { loading.value = false }
@@ -41,6 +43,11 @@ async function helpful(document) { busy.value = document.id; try { const state =
     <p v-if="error" class="form-error" role="alert">{{ error }}</p>
     <div v-if="loading" class="loading-state skeleton-list" aria-label="กำลังค้นหา"><div class="skeleton-line"></div><div class="skeleton-line"></div></div>
     <template v-else-if="searched">
+      <section class="search-section">
+        <div class="section-heading"><h2>Collections</h2><span class="count-pill">{{ collections.length }} รายการ</span></div>
+        <div v-if="collections.length" class="collection-grid"><article v-for="item in collections" :key="item.id" class="collection-card"><span class="type-chip">{{ item.collectionType }}</span><h3>{{ item.name }}</h3><p>{{ item.description }}</p><RouterLink class="text-link" :to="`/dashboard/c/${item.slug}`">เปิด Collection →</RouterLink></article></div>
+        <div v-else class="empty-state empty-state--compact"><h3>ไม่พบ Collection</h3></div>
+      </section>
       <section class="search-section">
         <div class="section-heading"><h2>ผู้แบ่งปัน</h2><span class="count-pill">{{ contributors.length }} คน</span></div>
         <div v-if="contributors.length" class="contributor-grid"><ContributorCard v-for="person in contributors" :key="person.username" :contributor="person" /></div>
