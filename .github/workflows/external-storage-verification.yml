@@ -28,8 +28,6 @@ jobs:
       EXTERNAL_STORAGE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       SUPABASE_STORAGE_BUCKET: csit-sheet-phase7b-test
       SUPABASE_STORAGE_PREFIX: phase7b/${{ github.run_id }}-${{ github.run_attempt }}
-      EXTERNAL_STORAGE_BOOTSTRAP_EVIDENCE_PATH: ${{ runner.temp }}/phase7b-evidence/ephemeral-storage-bootstrap.json
-      EXTERNAL_STORAGE_EVIDENCE_PATH: ${{ runner.temp }}/phase7b-evidence/external-storage-verification.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -40,11 +38,23 @@ jobs:
         with:
           version: 2.121.0
       - run: npm ci
-      - name: Fail closed unless local ephemeral execution is confirmed
+      - name: Configure runner-local evidence paths
         shell: bash
         run: |
           set -euo pipefail
-          test "${{ inputs.local_ephemeral_confirmation }}" = "LOCAL-EPHEMERAL"
+          evidence_directory="$RUNNER_TEMP/phase7b-evidence"
+          mkdir -p -- "$evidence_directory"
+          {
+            printf 'EXTERNAL_STORAGE_BOOTSTRAP_EVIDENCE_PATH=%s\n' "$evidence_directory/ephemeral-storage-bootstrap.json"
+            printf 'EXTERNAL_STORAGE_EVIDENCE_PATH=%s\n' "$evidence_directory/external-storage-verification.json"
+          } >> "$GITHUB_ENV"
+      - name: Fail closed unless local ephemeral execution is confirmed
+        shell: bash
+        env:
+          LOCAL_EPHEMERAL_CONFIRMATION: ${{ inputs.local_ephemeral_confirmation }}
+        run: |
+          set -euo pipefail
+          test "$LOCAL_EPHEMERAL_CONFIRMATION" = "LOCAL-EPHEMERAL"
           test -z "${SUPABASE_ACCESS_TOKEN:-}"
           test -z "${SUPABASE_PROJECT_ID:-}"
       - name: Start Docker-based ephemeral Supabase
