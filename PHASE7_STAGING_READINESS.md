@@ -17,11 +17,13 @@ Phase 7 prepares isolated CI/staging verification only. It does not deploy, prov
 
 The service container is ephemeral. A passing workflow run is required evidence; workflow presence or SQLite results are not PostgreSQL verification.
 
-## Isolated external storage lane
+## Ephemeral external storage lane
 
-`.github/workflows/external-storage-verification.yml` is manual-only and targets the protected GitHub Environment `isolated-storage`. It requires `TEST_SUPABASE_URL`, `TEST_SUPABASE_SECRET_KEY`, and `TEST_SUPABASE_STORAGE_BUCKET` environment secrets.
+`.github/workflows/external-storage-verification.yml` is manual-only and starts a Docker-based Supabase Local stack on its GitHub-hosted runner. It does not target a GitHub Environment, consume hosted Supabase secrets or variables, or link to a hosted Supabase project. The workflow obtains its short-lived local URL/key from `supabase status`, creates a private local test bucket, runs the tests, uploads secret-free evidence and destroys the stack.
 
-The bucket name must contain `staging`, `test`, or `qa`. The test requires the exact `ISOLATED-NON-PRODUCTION` safety token, writes one unique content-addressed object, verifies read/deduplicated save/metadata, removes it in `finally`, and verifies it is gone. Production-named variables are never used as fallbacks. Creating a Supabase project/bucket or adding credentials needs separate authorization; until an isolated target exists and this workflow passes, external storage is a release blocker.
+Local-ephemeral mode rejects hosted URLs, production/test Supabase variables, remote database URLs, non-SQLite database drivers, the production bucket name and any object prefix outside `phase7b/<run-id>`. It verifies upload/read/metadata/integrity, deduplication, retry, partial failure, private access, Collection cover lifecycle, reference-safe cleanup, secret-free errors and manifest-only deletion. See `PHASE7B1_EXTERNAL_STORAGE.md` for the complete boundary.
+
+A green local-ephemeral run proves Storage adapter and application API semantics only. It does not verify hosted production networking/configuration or production Storage policies. Hosted production-like external storage verification therefore remains a separate release blocker.
 
 ## Staging configuration and smoke checks
 
@@ -67,19 +69,20 @@ The CI implementation automates database dump/restore verification for temporary
 
 ## Current release readiness
 
-Local verification on 2026-10-11: backend 116 passed / 2 skipped / 0 failed (the skipped tests require PostgreSQL and isolated Supabase), frontend 56 passed / 0 failed, lint passed, production build passed, and Responsive/Visual QA passed at 375, 768, 1024, and 1440 px with zero horizontal-overflow findings. PostgreSQL and external-storage execution results are deliberately not inferred from these local results.
+Local verification on 2026-10-16: backend 117 passed / 3 skipped / 0 failed (one skipped test requires local PostgreSQL and two require the ephemeral Supabase stack), frontend 56 passed / 0 failed, lint passed, production build passed, and the previously recorded Responsive/Visual QA passed at 375, 768, 1024, and 1440 px with zero horizontal-overflow findings. Docker and the Supabase CLI are not installed on this workstation, so the ephemeral-storage integration suites were not executed live and are not recorded as passed.
 
 | Area | Status | Evidence / gate |
 | --- | --- | --- |
 | PostgreSQL workflow definition | PASSED | Ephemeral service, safety URL, test DB, backup/restore and artifact steps are present. |
-| PostgreSQL integration execution | BLOCKED | Requires a pushed GitHub Actions run; no local PostgreSQL/Docker is available. |
+| PostgreSQL integration execution | PASSED | GitHub Actions run 38150061496 passed on commit `a473efa3e41684cd0d9dc781e8dde37ac92d9301`. |
 | External adapter contract/local mocks | PASSED | Existing adapter tests plus isolated lifecycle test code. |
-| Isolated external storage execution | BLOCKED | Requires a separately approved Supabase test project/bucket and test-only credentials. |
+| Ephemeral Supabase storage execution | PENDING | Workflow implementation exists; a green manually dispatched run is still required evidence. |
+| Hosted production-like external storage | BLOCKED | Local Supabase does not verify hosted production networking, configuration or Storage policies. Production credentials remain prohibited in test workflows. |
 | Staging configuration contract | PASSED | Automated fail-closed preflight tests. |
 | Staging deployment/E2E | BLOCKED | No staging environment was provisioned or deployed. |
-| CI backup/restore execution | BLOCKED | Runs after PostgreSQL integration in GitHub Actions. |
+| CI backup/restore execution | PASSED | Dump, isolated restore, ledger/schema/row-count comparison passed in run 38150061496. |
 | Staging backup/restore | BLOCKED | Requires isolated staging PostgreSQL. |
 | Branding source | BLOCKED | Original CSIT SHEET 3D logo file has not been provided. |
 | Production deployment | BLOCKED | Prohibited in Phase 7 and requires separate approval. |
 
-The project must not be reported Production Ready while PostgreSQL CI, isolated external storage, and staging E2E/restore evidence are incomplete.
+The project must not be reported Production Ready while ephemeral storage CI evidence, hosted production-like storage verification, and staging E2E/restore evidence are incomplete.

@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { validateLocalEphemeralStorageEnvironment } from '../services/ephemeralStorageSafety.js'
 
 function configurationError(message) {
   const error = new Error(message)
@@ -31,6 +32,9 @@ function railwayPublicOrigin(value) {
 export function loadConfiguration(env = process.env) {
   if (env.NODE_ENV && !['development', 'test', 'production'].includes(env.NODE_ENV)) throw configurationError('NODE_ENV must be development, test or production')
   const production = env.NODE_ENV === 'production'
+  const externalStorageTestMode = env.EXTERNAL_STORAGE_TEST_MODE || ''
+  if (externalStorageTestMode && externalStorageTestMode !== 'local-ephemeral') throw configurationError('Unsupported EXTERNAL_STORAGE_TEST_MODE')
+  const localEphemeralStorage = externalStorageTestMode === 'local-ephemeral'
   const databaseDriver = env.DATABASE_DRIVER || (production ? 'postgres' : 'sqlite')
   if (!['sqlite', 'postgres'].includes(databaseDriver)) throw configurationError('DATABASE_DRIVER must be sqlite or postgres')
   if (production && databaseDriver === 'sqlite') throw configurationError('Production requires DATABASE_DRIVER=postgres')
@@ -49,11 +53,13 @@ export function loadConfiguration(env = process.env) {
     if (!env.SUPABASE_URL?.trim()) throw configurationError('SUPABASE_URL is required for STORAGE_DRIVER=supabase')
     try {
       const url = new URL(env.SUPABASE_URL)
-      if (url.protocol !== 'https:' || !url.hostname) throw new Error()
-    } catch { throw configurationError('SUPABASE_URL must be a valid HTTPS URL') }
+      if ((!localEphemeralStorage && url.protocol !== 'https:') || !url.hostname) throw new Error()
+    } catch { throw configurationError(localEphemeralStorage ? 'SUPABASE_URL must be a valid local URL' : 'SUPABASE_URL must be a valid HTTPS URL') }
     if (!storageKey?.trim()) throw configurationError('SUPABASE_SECRET_KEY is required for STORAGE_DRIVER=supabase')
     if (!env.SUPABASE_STORAGE_BUCKET?.trim()) throw configurationError('SUPABASE_STORAGE_BUCKET is required for STORAGE_DRIVER=supabase')
   }
+  if (localEphemeralStorage) validateLocalEphemeralStorageEnvironment(env)
+  if (!localEphemeralStorage && env.SUPABASE_STORAGE_PREFIX) throw configurationError('SUPABASE_STORAGE_PREFIX is restricted to local-ephemeral tests')
   const cookieSameSite = env.COOKIE_SAME_SITE || (production ? 'strict' : 'lax')
   if (!['strict', 'lax', 'none'].includes(cookieSameSite)) throw configurationError('COOKIE_SAME_SITE must be strict, lax or none')
   const cookieSecure = production || cookieSameSite === 'none'
@@ -81,7 +87,7 @@ export function loadConfiguration(env = process.env) {
     storageDriver, storageUrl: env.SUPABASE_URL,
     // Prefer Supabase's current server-only Secret key. Keep the legacy
     // service_role name as a transition path for existing deployments.
-    storageKey,
+    storageKey, storagePrefix: localEphemeralStorage ? env.SUPABASE_STORAGE_PREFIX : '', externalStorageTestMode,
     storageBucket: env.SUPABASE_STORAGE_BUCKET, port: positiveInteger(env.PORT, 8080, 'PORT', 65535),
     host: env.HOST || (production ? '0.0.0.0' : '127.0.0.1'),
     jwtSecret: env.JWT_SECRET?.trim(), accessTokenTtl: env.ACCESS_TOKEN_TTL || '15m',

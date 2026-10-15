@@ -20,7 +20,7 @@
     "start": "node src/server.js",
     "test": "node --test",
     "test:postgres": "node --test test/postgres-integration.test.js",
-    "test:external-storage": "node --test test/external-storage.integration.test.js"
+    "test:external-storage": "node --test --test-concurrency=1 test/external-storage.integration.test.js test/external-storage.application.integration.test.js"
   },
   "dependencies": {
     "@netlify/blobs": "^11.1.3",

@@ -1,29 +1,88 @@
-name: Isolated External Storage Verification
+name: Ephemeral External Storage Verification
 
 on:
   workflow_dispatch:
+    inputs:
+      local_ephemeral_confirmation:
+        description: Type LOCAL-EPHEMERAL to confirm no hosted Supabase project may be used
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  isolated-supabase-storage:
+  local-ephemeral-supabase-storage:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: isolated-storage
+    timeout-minutes: 25
+    concurrency:
+      group: phase7b-local-ephemeral-${{ github.ref }}
+      cancel-in-progress: false
     env:
       NODE_ENV: test
+      DATABASE_DRIVER: sqlite
+      STORAGE_DRIVER: supabase
       RUN_EXTERNAL_STORAGE_TESTS: "true"
-      EXTERNAL_STORAGE_SAFETY_TOKEN: ISOLATED-NON-PRODUCTION
-      TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-      TEST_SUPABASE_SECRET_KEY: ${{ secrets.TEST_SUPABASE_SECRET_KEY }}
-      TEST_SUPABASE_STORAGE_BUCKET: ${{ secrets.TEST_SUPABASE_STORAGE_BUCKET }}
+      EXTERNAL_STORAGE_TEST_MODE: local-ephemeral
+      EXTERNAL_STORAGE_CREDENTIAL_SOURCE: supabase-local-status
+      EXTERNAL_STORAGE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      SUPABASE_STORAGE_BUCKET: csit-sheet-phase7b-test
+      SUPABASE_STORAGE_PREFIX: phase7b/${{ github.run_id }}-${{ github.run_attempt }}
+      EXTERNAL_STORAGE_BOOTSTRAP_EVIDENCE_PATH: ${{ runner.temp }}/phase7b-evidence/ephemeral-storage-bootstrap.json
+      EXTERNAL_STORAGE_EVIDENCE_PATH: ${{ runner.temp }}/phase7b-evidence/external-storage-verification.json
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
+      - uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v3.0.1
+        with:
+          version: 2.121.0
       - run: npm ci
-      - name: Verify isolated object storage lifecycle
+      - name: Fail closed unless local ephemeral execution is confirmed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ inputs.local_ephemeral_confirmation }}" = "LOCAL-EPHEMERAL"
+          test -z "${SUPABASE_ACCESS_TOKEN:-}"
+          test -z "${SUPABASE_PROJECT_ID:-}"
+      - name: Start Docker-based ephemeral Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase init
+          supabase start --runtime docker
+      - name: Load credentials from the local stack only
+        shell: bash
+        run: |
+          set -euo pipefail
+          status_file="$RUNNER_TEMP/supabase-local.env"
+          supabase status -o env > "$status_file"
+          set -a
+          source "$status_file"
+          set +a
+          local_storage_key="${SECRET_KEY:-${SERVICE_ROLE_KEY:-}}"
+          test "$API_URL" = "http://127.0.0.1:54321"
+          test -n "$local_storage_key"
+          echo "::add-mask::$local_storage_key"
+          {
+            echo "SUPABASE_URL=$API_URL"
+            echo "SUPABASE_SECRET_KEY=$local_storage_key"
+          } >> "$GITHUB_ENV"
+      - name: Create and verify the ephemeral private bucket
+        run: node scripts/phase7/prepare-ephemeral-storage.mjs
+      - name: Verify ephemeral object storage lifecycle
         run: npm run test:external-storage
+      - name: Upload secret-free verification evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: phase7b1-ephemeral-storage-evidence
+          path: ${{ runner.temp }}/phase7b-evidence/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Destroy the local Supabase stack
+        if: always()
+        shell: bash
+        run: supabase stop --no-backup || true

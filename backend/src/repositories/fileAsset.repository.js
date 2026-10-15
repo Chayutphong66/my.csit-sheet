@@ -52,9 +52,9 @@ export async function getOrCreateFileAsset({ binaryHash, contentHash = '', origi
   } else {
     await db.prepare(`
       INSERT OR IGNORE INTO file_assets (
-        id, binary_hash, content_hash, original_filename, mime_type, file_size, file_data, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `).run(crypto.randomUUID(), binaryHash, contentHash || null, originalFilename, mimeType, buffer.length, buffer)
+        id, binary_hash, content_hash, original_filename, mime_type, file_size, file_data, blob_key, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).run(crypto.randomUUID(), binaryHash, contentHash || null, originalFilename, mimeType, buffer.length, blobKey ? null : buffer, blobKey)
   }
   if (contentHash) {
     await db.prepare(`

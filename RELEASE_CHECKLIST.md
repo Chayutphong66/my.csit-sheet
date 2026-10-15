@@ -6,9 +6,9 @@
 - [x] Application rollback plan documented: roll back application code first and retain additive columns/audit rows. Remove schema only in a separately reviewed maintenance window after confirming no dependencies.
 - [x] Admin User Management RBAC, IDOR, validation, editing, deactivation/reactivation, referential-integrity, session-revocation, and audit-log regression tests added.
 - [x] Responsive Admin User Management QA completed at 375, 768, 1024, and 1440 px.
-- [ ] Run the dedicated PostgreSQL integration suite with `TEST_DATABASE_URL`; it remains skipped when that local test database is not provided.
+- [x] Dedicated PostgreSQL integration passed in GitHub Actions run `38150061496`; local execution remains safely skipped without `TEST_DATABASE_URL`.
 - [x] Reconciled legacy Admin Review visual assertions with semantic filters/actions, preview bytes, deterministic pending-item selection, and keyboard-dialog focus checks.
-- [ ] Do not report Full Regression as passed until the PostgreSQL item above is verified.
+- [x] PostgreSQL release-blocker coverage for this phase passed in run `38150061496`.
 
 ## Release Safety
 
@@ -25,9 +25,9 @@
 - [x] User ownership, cross-user IDOR, admin/owner separation, draft privacy, document visibility, cover validation, upload limits, retry idempotency, and optimistic order concurrency pass on SQLite.
 - [x] Lecture and Sheet approval-to-Collection linkage pass on SQLite.
 - [x] Profile, Course, Search, share page, user Bulk Upload, and responsive Collection management QA pass locally.
-- [ ] Run migrations 001–006 twice against a fresh dedicated local PostgreSQL database using `TEST_DATABASE_URL`.
-- [ ] Verify PostgreSQL row locks/advisory locks for concurrent approval, duplicate detection, ordering, and retry.
-- [ ] Verify the last-active-admin guard under concurrent PostgreSQL transactions.
+- [x] Migrations 001–006, repeat no-op and checksum ledger passed against ephemeral PostgreSQL 16 in run `38150061496`.
+- [x] PostgreSQL locks/concurrency passed for approval, duplicate detection, ordering and retry in run `38150061496`.
+- [x] Last-active-admin guard passed under concurrent PostgreSQL transactions in run `38150061496`.
 - [ ] Verify external production-like storage upload/download and cover cleanup behavior.
 - [ ] Production deploy/migration requires separate approval.
 
@@ -55,10 +55,12 @@
 - [x] Added tests for migrations `001`–`006`, concurrent migration/idempotency/checksum ledger, constraints, rollback, approval, retry, deduplication, Collection ordering and last-admin concurrency.
 - [x] Added isolated CI backup/restore and secret-free migration/storage inventory tooling.
 - [x] Added fail-closed staging environment contract and read-only smoke tooling.
-- [x] Added a manual isolated Supabase lifecycle workflow; it never falls back to production variable names.
-- [ ] Obtain a green PostgreSQL Integration workflow run from the release commit.
-- [ ] Provision or nominate an isolated Supabase test project/bucket and add only `TEST_SUPABASE_*` credentials after separate approval.
-- [ ] Obtain a green Isolated External Storage Verification workflow run.
+- [x] Prepared a manual Docker-based Supabase Local lifecycle workflow; it never reads hosted or production Supabase credentials.
+- [x] PostgreSQL Integration and isolated backup/restore passed in GitHub Actions run `38150061496` on commit `a473efa3e41684cd0d9dc781e8dde37ac92d9301`.
+- [x] Removed the hosted-project requirement from Phase 7B.1 by using an ephemeral local stack and private local bucket.
+- [x] Prepared fail-closed loopback/SQLite guards, run-scoped object paths, private-bucket verification, manifest-only cleanup, reference-safe coverage and secret-free evidence.
+- [ ] Obtain a green Ephemeral External Storage Verification workflow run.
+- [ ] Complete a separately approved hosted production-like storage verification; the local lane does not prove hosted networking/configuration or policies.
 - [ ] Provision/deploy an approved staging environment, verify backup restore, then complete staging E2E and browser/storage checks.
 - [ ] Install the approved 3D logo source asset when supplied; do not generate a substitute.
 - [ ] Production deployment and production migration remain prohibited until all release blockers pass and separate approval is granted.

@@ -66,8 +66,15 @@ export function createStorageAdapter(configuration = config, request = fetch) {
       throw new Error('Supabase storage requires SUPABASE_URL, SUPABASE_SECRET_KEY and SUPABASE_STORAGE_BUCKET')
     }
     const url = new URL(configuration.storageUrl)
-    if (url.protocol !== 'https:') throw new Error('SUPABASE_URL must use HTTPS')
+    const localEphemeral = configuration.externalStorageTestMode === 'local-ephemeral' || process.env.EXTERNAL_STORAGE_TEST_MODE === 'local-ephemeral'
+    const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)
+    if (url.protocol !== 'https:' && !(localEphemeral && url.protocol === 'http:' && loopback)) throw new Error('SUPABASE_URL must use HTTPS unless local-ephemeral mode targets loopback')
     return url.origin
+  }
+  function scopedKey(key) {
+    const validKey = validateKey(key)
+    const prefix = String(configuration.storagePrefix || '').replace(/\/$/, '')
+    return prefix ? `${validateKey(prefix)}/${validKey}` : validKey
   }
   async function remote(key, method, body, metadata = {}) {
     const origin = supabaseConfiguration()
@@ -79,7 +86,8 @@ export function createStorageAdapter(configuration = config, request = fetch) {
     // Current sb_secret_ keys are API keys, not JWTs. Legacy service-role JWTs
     // still require the Bearer header during the compatibility window.
     if (!configuration.storageKey.startsWith('sb_secret_')) headers.authorization = `Bearer ${configuration.storageKey}`
-    const response = await request(`${origin}/storage/v1/object/${encodeURIComponent(configuration.storageBucket)}/${validateKey(key).split('/').map(encodeURIComponent).join('/')}`, {
+    const remoteKey = scopedKey(key)
+    const response = await request(`${origin}/storage/v1/object/${encodeURIComponent(configuration.storageBucket)}/${remoteKey.split('/').map(encodeURIComponent).join('/')}`, {
       method, headers, signal: AbortSignal.timeout(30000), ...(body === undefined ? {} : { body })
     })
     let failure

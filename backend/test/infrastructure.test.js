@@ -226,7 +226,7 @@ test('Supabase adapter remains lazy, validates keys and uses server-only authent
   let calls = 0; const seen = []
   const missing = createStorageAdapter({ storageDriver: 'supabase' }, async () => { calls++ })
   assert.equal(calls, 0); await assert.rejects(missing.read('sha256/test'), /SUPABASE_URL/)
-  const adapter = createStorageAdapter({ storageDriver: 'supabase', storageUrl: 'https://storage.example.invalid', storageBucket: 'documents', storageKey: 'sb_secret_fixture-server-only-key' }, async (url, options) => {
+  const adapter = createStorageAdapter({ storageDriver: 'supabase', storageUrl: 'https://storage.example.invalid', storageBucket: 'documents', storageKey: 'sb_secret_fixture-server-only-key', storagePrefix: 'phase7b/run-1' }, async (url, options) => {
     seen.push({ url, options }); return new Response(options.method === 'GET' ? 'fixture' : '{}', { status: 200 })
   })
   await adapter.save('sha256/test', Buffer.from('fixture'))
@@ -236,6 +236,7 @@ test('Supabase adapter remains lazy, validates keys and uses server-only authent
   assert.equal(seen[0].options.headers.authorization, undefined)
   assert.equal(seen[0].options.headers.apikey, 'sb_secret_fixture-server-only-key')
   assert.equal(seen[0].options.headers['x-upsert'], 'false')
+  assert.match(seen[0].url, /\/documents\/phase7b\/run-1\/sha256\/test$/)
   await assert.rejects(adapter.read('../escape'), /Invalid storage key/)
   const failing = createStorageAdapter({ storageDriver: 'supabase', storageUrl: 'https://storage.example.invalid', storageBucket: 'documents', storageKey: 'fixture-server-only-key' }, async () => new Response('credential-bearing provider body', { status: 500 }))
   await assert.rejects(failing.read('sha256/test'), error => error.status === 503 && !error.message.includes('credential-bearing'))
