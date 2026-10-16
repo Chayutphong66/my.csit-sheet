@@ -57,12 +57,23 @@ jobs:
           test "$LOCAL_EPHEMERAL_CONFIRMATION" = "LOCAL-EPHEMERAL"
           test -z "${SUPABASE_ACCESS_TOKEN:-}"
           test -z "${SUPABASE_PROJECT_ID:-}"
+      - name: Verify Docker daemon readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..10}; do
+            if docker info >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 3
+          done
+          docker info
       - name: Start Docker-based ephemeral Supabase
         shell: bash
         run: |
           set -euo pipefail
           supabase init
-          supabase start --runtime docker
+          supabase start
       - name: Load credentials from the local stack only
         shell: bash
         run: |
