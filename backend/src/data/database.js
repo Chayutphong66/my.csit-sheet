@@ -6,6 +6,7 @@ import crypto from 'node:crypto'
 import { hashPassword } from '../services/password.service.js'
 import { calculateContentFingerprint } from '../services/contentFingerprint.service.js'
 import { seedCurriculum } from './curriculumSeed.js'
+import { ensureSqliteFileAssetStorageContract, sqliteFileAssetTableSql } from './sqliteFileAssetMigration.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -173,17 +174,7 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
-  CREATE TABLE IF NOT EXISTS file_assets (
-    id TEXT PRIMARY KEY,
-    binary_hash TEXT NOT NULL UNIQUE,
-    content_hash TEXT,
-    original_filename TEXT NOT NULL,
-    mime_type TEXT NOT NULL DEFAULT '',
-    file_size INTEGER NOT NULL DEFAULT 0,
-    file_data BLOB NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
+  ${sqliteFileAssetTableSql}
 
   CREATE TABLE IF NOT EXISTS document_interactions (
     user_id TEXT NOT NULL,
@@ -218,6 +209,7 @@ db.exec(`
 
 const fileAssetCols = db.prepare('PRAGMA table_info(file_assets)').all().map((column) => column.name)
 if (!fileAssetCols.includes('blob_key')) db.exec('ALTER TABLE file_assets ADD COLUMN blob_key TEXT')
+ensureSqliteFileAssetStorageContract(db)
 
 const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name)
 if (!userCols.includes('display_name')) db.exec("ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT ''")

@@ -3,6 +3,14 @@ import { db, databaseDialect, withTransaction } from '../data/databaseClient.js'
 import { readFileBytes, storeFileBytes } from '../services/fileStorage.service.js'
 import { config } from '../config/environment.js'
 
+function persistenceError(cause) {
+  const error = new Error('File asset persistence failed')
+  error.code = 'FILE_ASSET_PERSISTENCE_ERROR'
+  error.status = 500
+  if (cause) error.cause = cause
+  return error
+}
+
 function toFileAsset(row) {
   if (!row) return null
   return {
@@ -42,19 +50,25 @@ export async function getOrCreateFileAsset({ binaryHash, contentHash = '', origi
     fileData: buffer,
     metadata: { originalFilename, mimeType }
   })
-  if (databaseDialect === 'postgres') {
-    const modernStorage = config.storageDriver !== 'netlify'
-    await db.prepare(`
-      INSERT OR IGNORE INTO file_assets (
-        id, binary_hash, content_hash, original_filename, mime_type, file_size, file_data, blob_key${modernStorage ? ', storage_key, storage_provider' : ''}, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?${modernStorage ? ', ?, ?' : ''}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `).run(crypto.randomUUID(), binaryHash, contentHash || null, originalFilename, mimeType, buffer.length, blobKey ? null : buffer, blobKey, ...(modernStorage ? [blobKey, config.storageDriver] : []))
-  } else {
-    await db.prepare(`
-      INSERT OR IGNORE INTO file_assets (
-        id, binary_hash, content_hash, original_filename, mime_type, file_size, file_data, blob_key, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `).run(crypto.randomUUID(), binaryHash, contentHash || null, originalFilename, mimeType, buffer.length, blobKey ? null : buffer, blobKey)
+  try {
+    if (databaseDialect === 'postgres') {
+      const modernStorage = config.storageDriver !== 'netlify'
+      await db.prepare(`
+        INSERT INTO file_assets (
+          id, binary_hash, content_hash, original_filename, mime_type, file_size, file_data, blob_key${modernStorage ? ', storage_key, storage_provider' : ''}, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?${modernStorage ? ', ?, ?' : ''}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT(binary_hash) DO NOTHING
+      `).run(crypto.randomUUID(), binaryHash, contentHash || null, originalFilename, mimeType, buffer.length, blobKey ? null : buffer, blobKey, ...(modernStorage ? [blobKey, config.storageDriver] : []))
+    } else {
+      await db.prepare(`
+        INSERT INTO file_assets (
+          id, binary_hash, content_hash, original_filename, mime_type, file_size, file_data, blob_key, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT(binary_hash) DO NOTHING
+      `).run(crypto.randomUUID(), binaryHash, contentHash || null, originalFilename, mimeType, buffer.length, blobKey ? null : buffer, blobKey)
+    }
+  } catch (cause) {
+    throw persistenceError(cause)
   }
   if (contentHash) {
     await db.prepare(`
@@ -62,7 +76,9 @@ export async function getOrCreateFileAsset({ binaryHash, contentHash = '', origi
       WHERE binary_hash = ?
     `).run(contentHash, binaryHash)
   }
-  return await findFileAssetByHash(binaryHash)
+  const asset = await findFileAssetByHash(binaryHash)
+  if (!asset) throw persistenceError()
+  return asset
 }
 
 export async function countFileAssets() {
