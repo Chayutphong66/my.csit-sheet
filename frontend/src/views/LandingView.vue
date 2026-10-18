@@ -73,6 +73,6 @@ onBeforeUnmount(() => observer?.disconnect())
       <section id="workflow" class="section" data-reveal><header class="starter-section-heading"><div><p class="eyebrow">THE COMMUNITY LOOP</p><h2>เริ่มจากความสงสัย<br />ไปต่อด้วยการแบ่งปัน</h2></div><p>ใช้ความรู้ที่มีวันนี้<br />ช่วยให้ใครอีกคนเข้าใจได้ในวันพรุ่งนี้</p></header><ol class="starter-steps"><li v-for="(step, index) in steps" :key="step.title"><span class="technical-label">0{{ index + 1 }}</span><h3>{{ step.title }}</h3><p>{{ step.body }}</p></li></ol></section>
       <section class="starter-cta" data-reveal><p class="eyebrow">A SHARED SPACE TO GROW</p><h2>เรียนรู้ได้ไกลขึ้น<br />เมื่อเราแบ่งปันไปด้วยกัน</h2><div class="hero__actions"><RouterLink :to="browseTo" class="button button--primary">สำรวจคลังความรู้ ↗</RouterLink><RouterLink :to="shareTo" class="button button--ghost">เริ่มแบ่งปัน →</RouterLink></div></section>
     </main>
-    <footer id="contact" class="footer starter-footer"><RouterLink to="/" class="brand"><span class="brand__mark">CS</span> CSIT Sheet</RouterLink><span>พื้นที่แบ่งปันความรู้สำหรับนักศึกษา CSIT</span><a href="#starter-main" class="text-link">กลับด้านบน ↑</a></footer>
+    <footer id="contact" class="footer starter-footer"><RouterLink to="/" class="brand"><span class="brand__mark">CS</span> CSIT Sheet</RouterLink><span>พื้นที่แบ่งปันความรู้สำหรับนักศึกษา CSIT</span><RouterLink to="/privacy" class="text-link">ข้อมูลความเป็นส่วนตัว</RouterLink><a href="#starter-main" class="text-link">กลับด้านบน ↑</a></footer>
   </div>
 </template>

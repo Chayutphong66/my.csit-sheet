@@ -62,6 +62,7 @@ async function submit() {
         {{ auth.loading ? 'กำลังสร้างบัญชี…' : 'สร้างบัญชี' }}
       </button>
       <RouterLink to="/login" class="text-link">มีบัญชีอยู่แล้ว</RouterLink>
+      <p class="material-meta">การสร้างบัญชีจะมีการประมวลผลข้อมูลที่จำเป็นต่อบริการ <RouterLink to="/privacy" class="text-link">อ่านข้อมูลความเป็นส่วนตัว</RouterLink></p>
     </form>
   </AuthPanel>
 </template>

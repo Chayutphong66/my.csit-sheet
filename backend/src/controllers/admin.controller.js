@@ -34,8 +34,21 @@ import { logServerError } from '../services/safeLogger.service.js'
 import * as adminUserService from '../services/adminUser.service.js'
 import { createCollection, findCollection, listCollections, updateCollection } from '../repositories/collection.repository.js'
 import { createBulkUpload, getBulkUpload, retryBulkUpload } from '../services/bulkUpload.service.js'
+import * as feedbackService from '../services/feedback.service.js'
 
 const COURSE_IMPORT_MAX_BYTES = 20 * 1024 * 1024
+
+export async function getFeedbackReports(req, res, next) {
+  try { res.json(await feedbackService.listAdminFeedback(req.query)) } catch (error) { next(error) }
+}
+
+export async function getFeedbackReport(req, res, next) {
+  try { res.json(await feedbackService.getAdminFeedback(req.params.reference)) } catch (error) { next(error) }
+}
+
+export async function patchFeedbackReport(req, res, next) {
+  try { res.json(await feedbackService.updateAdminFeedback(req.params.reference, req.user.id, req.body || {})) } catch (error) { next(error) }
+}
 
 export async function getCollections(req, res, next) {
   try { res.json(await listCollections(req.query)) } catch (error) { next(error) }

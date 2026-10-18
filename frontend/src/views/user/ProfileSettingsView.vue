@@ -173,6 +173,8 @@ onMounted(async () => {
 
         <section v-show="activeSection === 'privacy'" id="privacy" class="settings-section">
           <h2>ความเป็นส่วนตัว</h2>
+          <p class="info-note">ดูรายละเอียดข้อมูลที่ระบบใช้จริงและรายการนโยบายที่ยังรอการยืนยันจากเจ้าของระบบ</p>
+          <RouterLink to="/privacy" class="text-link">อ่านข้อมูลความเป็นส่วนตัว</RouterLink>
           <label><input v-model="privacy.profilePublic" type="checkbox" /> แสดงโปรไฟล์สาธารณะ</label>
           <label><input v-model="privacy.showProgram" type="checkbox" /> แสดงสาขา</label>
           <label><input v-model="privacy.showCohort" type="checkbox" /> แสดงรุ่น</label>

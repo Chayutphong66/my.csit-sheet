@@ -9,7 +9,8 @@ const schema = [
   '../../migrations/postgres/003_account_community_enhancements.sql',
   '../../migrations/postgres/004_admin_user_management.sql',
   '../../migrations/postgres/005_collection_bulk_upload.sql',
-  '../../migrations/postgres/006_collection_completion.sql'
+  '../../migrations/postgres/006_collection_completion.sql',
+  '../../migrations/postgres/007_feedback_reporting.sql'
 ].map(relative => readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8')).join('\n')
 const schemaTables = [...schema.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+) \(/g)].map(match => match[1])
 // Collections must exist before upload_requests rows that reference them. Keep

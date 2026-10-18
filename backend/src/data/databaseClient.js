@@ -192,3 +192,8 @@ export async function lockCollection(id) {
   if (!transactionContext.getStore()) throw new Error('Collection locking requires a transaction')
   if (isPostgres) await db.prepare('SELECT id FROM collections WHERE id=? FOR UPDATE').get(id)
 }
+
+export async function lockFeedbackReport(id) {
+  if (!transactionContext.getStore()) throw new Error('Feedback locking requires a transaction')
+  if (isPostgres) await db.prepare('SELECT id FROM feedback_reports WHERE id=? FOR UPDATE').get(id)
+}

@@ -6,6 +6,7 @@ import LandingView from '@/views/LandingView.vue'
 // screens are fetched only when navigation needs them.
 const LoginView = () => import('@/views/auth/LoginView.vue')
 const RegisterView = () => import('@/views/auth/RegisterView.vue')
+const PrivacyInformationView = () => import('@/views/PrivacyInformationView.vue')
 const ForgotPasswordView = () => import('@/views/auth/ForgotPasswordView.vue')
 const ResetPasswordView = () => import('@/views/auth/ResetPasswordView.vue')
 const VerifyEmailView = () => import('@/views/auth/VerifyEmailView.vue')
@@ -32,11 +33,14 @@ const UserCollectionPanel = () => import('@/components/user/UserCollectionPanel.
 const CollectionEditorPanel = () => import('@/components/user/CollectionEditorPanel.vue')
 const PublishedCollectionPanel = () => import('@/components/user/PublishedCollectionPanel.vue')
 const CollectionReaderPanel = () => import('@/components/user/CollectionReaderPanel.vue')
+const UserFeedbackPanel = () => import('@/components/user/UserFeedbackPanel.vue')
+const AdminFeedbackPanel = () => import('@/components/admin/AdminFeedbackPanel.vue')
 
 const routes = [
   { path: '/', name: 'home', component: LandingView },
   { path: '/login', name: 'login', component: LoginView },
   { path: '/register', name: 'register', component: RegisterView },
+  { path: '/privacy', name: 'privacy-policy', component: PrivacyInformationView },
   { path: '/forgot-password', name: 'forgot-password', component: ForgotPasswordView },
   { path: '/reset-password', name: 'reset-password', component: ResetPasswordView },
   { path: '/verify-email', name: 'verify-email', component: VerifyEmailView },
@@ -67,6 +71,7 @@ const routes = [
       { path: 'notifications', redirect: { name: 'user-profile' } },
       { path: 'profile', name: 'user-profile', component: UserProfilePanel },
       { path: 'settings', name: 'profile-settings', component: ProfileSettingsView },
+      { path: 'feedback', name: 'user-feedback', component: UserFeedbackPanel },
       { path: 'users/:username', name: 'public-profile', component: PublicProfilePanel }
     ]
   },
@@ -81,7 +86,8 @@ const routes = [
       { path: 'status', name: 'admin-status', component: AdminStatusPanel },
       { path: 'subject', name: 'admin-subject', component: AdminSubjectPanel },
       { path: 'collections', name: 'admin-collections', component: AdminCollectionPanel },
-      { path: 'dashboard', name: 'admin-dashboard', component: AdminDashboardPanel }
+      { path: 'dashboard', name: 'admin-dashboard', component: AdminDashboardPanel },
+      { path: 'feedback', name: 'admin-feedback', component: AdminFeedbackPanel }
     ]
   }
 ]

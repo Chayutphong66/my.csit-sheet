@@ -18,7 +18,7 @@ async function showConnections(kind) { connectionKind.value = kind; connections.
       <span>{{ profile.cohort ? `รุ่น ${profile.cohort}` : 'ยังไม่ได้ระบุรุ่น' }}</span>
     </p>
     <p v-if="profile.bio">{{ profile.bio }}</p>
-    <RouterLink v-if="profile.isOwner" class="button button--ghost" to="/dashboard/settings">Edit profile</RouterLink>
+    <div v-if="profile.isOwner" class="profile-owner-actions"><RouterLink class="button button--ghost" to="/dashboard/settings">Edit profile</RouterLink><RouterLink class="text-link" to="/dashboard/feedback">แจ้งปัญหา / เสนอแนะ</RouterLink></div>
     <button v-else class="button" :class="profile.followedByMe ? 'button--ghost' : 'button--primary'" :disabled="saving" @click="$emit('follow', !profile.followedByMe)">{{ profile.followedByMe ? 'Following' : 'Follow' }}</button>
     <p class="profile-follow-counts"><button class="text-link" @click="showConnections('followers')"><strong>{{ profile.followersCount || 0 }}</strong> followers</button> · <button class="text-link" @click="showConnections('following')"><strong>{{ profile.followingCount || 0 }}</strong> following</button></p>
     <section v-if="connections" class="profile-connections"><div class="section-heading"><strong>{{ connectionKind }}</strong><button class="icon-button" aria-label="Close" @click="connections=null">×</button></div><p v-if="!connections.length" class="material-meta">No {{ connectionKind }} yet.</p><RouterLink v-for="person in connections" :key="person.username" :to="`/dashboard/users/${person.username}`">{{ person.displayName }} · @{{ person.username }}</RouterLink></section>

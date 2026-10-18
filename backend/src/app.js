@@ -14,6 +14,7 @@ import { curriculumRouter, suggestionRouter } from './routes/academic.routes.js'
 import { checkDatabaseConnection } from './data/databaseClient.js'
 import uploadSessionRoutes from './routes/uploadSession.routes.js'
 import collectionRoutes from './routes/collection.routes.js'
+import feedbackRoutes from './routes/feedback.routes.js'
 import { databaseDiagnosticCode, logServerError, logStorageFailure } from './services/safeLogger.service.js'
 import { config } from './config/environment.js'
 import { mountProductionFrontend } from './services/frontendHosting.js'
@@ -84,6 +85,7 @@ app.use('/api/courses', courseRouter)
 app.use('/api/documents', documentRouter)
 app.use('/api/contributors', contributorRoutes)
 app.use('/api/collections', collectionRoutes)
+app.use('/api/feedback', feedbackRoutes)
 
 app.use('/api', (req, res) => {
   res.status(404).json({ message: `Route not found: ${req.method} ${req.originalUrl}` })

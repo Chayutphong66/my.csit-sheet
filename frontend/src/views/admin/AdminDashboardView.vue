@@ -7,7 +7,8 @@ const navItems = [
   { label: 'เผยแพร่เอกสาร', to: '/admin/upload' },
   { label: 'Collections', to: '/admin/collections' },
   { label: 'ผู้ใช้งาน', to: '/admin/status' },
-  { label: 'รายวิชา', to: '/admin/subject' }
+  { label: 'รายวิชา', to: '/admin/subject' },
+  { label: 'Feedback', to: '/admin/feedback' }
 ]
 </script>
 

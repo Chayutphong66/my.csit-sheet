@@ -24,7 +24,9 @@ export const requiredSchema = {
   user_follows: ['follower_id', 'followed_id'],
   profile_change_requests: ['id', 'user_id', 'category', 'status', 'reviewer_id'],
   notification_preferences: ['user_id', 'new_follower', 'followed_documents', 'document_activity', 'activity_email'],
-  email_deliveries: ['id', 'template', 'recipient', 'status']
+  email_deliveries: ['id', 'template', 'recipient', 'status'],
+  feedback_reports: ['id', 'public_reference', 'reporter_user_id', 'client_request_id', 'category', 'subject', 'description', 'related_path', 'related_document_type', 'related_document_id', 'status', 'version', 'created_at', 'updated_at', 'resolved_at'],
+  feedback_report_events: ['id', 'report_id', 'actor_user_id', 'event_type', 'previous_status', 'new_status', 'internal_note', 'public_message', 'created_at']
 }
 
 export function verifySchema(rows, externalReferences = true) {

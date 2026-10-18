@@ -28,7 +28,9 @@ onMounted(() => { if (isUser.value) notifications.load() })
         <RouterLink v-for="item in navItems" :key="item.to" :to="item.to" class="dashboard-nav__link">{{ item.label }}</RouterLink>
       </nav>
       <div class="dashboard-account">
-        <RouterLink v-if="isUser" to="/dashboard/search" class="icon-button search-shortcut" aria-label="ค้นหา"><span aria-hidden="true">⌕</span></RouterLink>
+        <RouterLink v-if="isUser" to="/dashboard/search" class="icon-button search-shortcut" aria-label="ค้นหาเอกสาร">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>
+        </RouterLink>
         <RouterLink v-if="isUser" to="/dashboard/profile" class="notif-bell icon-button" :aria-label="`การแจ้งเตือน${notifications.unreadCount ? ` ${notifications.unreadCount} รายการที่ยังไม่อ่าน` : ''}`">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>
           <span v-if="notifications.unreadCount" class="notif-bell__badge">{{ notifications.unreadCount > 9 ? '9+' : notifications.unreadCount }}</span>

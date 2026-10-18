@@ -6,6 +6,9 @@ import * as adminController from '../controllers/admin.controller.js'
 const router = Router()
 
 router.use(requireAuth, requireRole('ADMIN'))
+router.get('/feedback', adminController.getFeedbackReports)
+router.get('/feedback/:reference', adminController.getFeedbackReport)
+router.patch('/feedback/:reference', adminController.patchFeedbackReport)
 router.get('/users', adminController.getUsers)
 router.get('/users/:id', validateIdParam, adminController.getUser)
 router.patch('/users/:id', validateIdParam, adminController.editUser)
