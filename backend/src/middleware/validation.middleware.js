@@ -1,4 +1,5 @@
 import { normalizeCohort, normalizeProgram } from '../services/communityIdentity.service.js'
+import { normalizeSupportedMailbox } from '../services/emailAddress.service.js'
 
 function validationError(message) {
   const error = new Error(message)
@@ -33,7 +34,12 @@ export function validateRegister(req, _res, next) {
     const displayName = req.body?.displayName === undefined
       ? username
       : requireString(req.body.displayName, 'displayName', { min: 2, max: 80 })
-    const email = requireString(req.body?.email, 'email', { max: 255 }).toLowerCase()
+    let email
+    try {
+      email = normalizeSupportedMailbox(req.body?.email)
+    } catch {
+      throw validationError('email is invalid')
+    }
     const password = requireString(req.body?.password, 'password', { min: 8, max: 1024 })
     const confirmPassword = req.body?.confirmPassword === undefined
       ? password
@@ -43,9 +49,6 @@ export function validateRegister(req, _res, next) {
 
     if (!/^[a-zA-Z0-9_.-]+$/.test(username)) {
       throw validationError('username contains invalid characters')
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      throw validationError('email is invalid')
     }
     if (password !== confirmPassword) throw validationError('Passwords do not match')
 
@@ -58,8 +61,12 @@ export function validateRegister(req, _res, next) {
 
 export function validateEmailBody(req, _res, next) {
   try {
-    const email = requireString(req.body?.email, 'email', { max: 255 }).toLowerCase()
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw validationError('email is invalid')
+    let email
+    try {
+      email = normalizeSupportedMailbox(req.body?.email)
+    } catch {
+      throw validationError('email is invalid')
+    }
     req.body = { email }; next()
   } catch (error) { next(error) }
 }

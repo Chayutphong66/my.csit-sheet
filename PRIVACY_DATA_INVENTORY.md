@@ -1,6 +1,6 @@
 # Privacy data inventory (owner-review draft)
 
-Verified against the application source on 2026-10-18. This is an engineering inventory, not approved legal text.
+Verified against the application source on 2026-10-19. This is an engineering inventory, not approved legal text.
 
 | Data/process | Verified purpose | Storage/recipient | User control | Retention status |
 | --- | --- | --- | --- | --- |
@@ -11,6 +11,8 @@ Verified against the application source on 2026-10-18. This is an engineering in
 | Notifications and email delivery status | Activity notifications | Database; configured SMTP provider receives recipient data when enabled | Notification preferences | Provider and retention need deployment-owner confirmation |
 | Feedback reports and review history | Support and product improvement | Application database; admin-only notes are not returned to reporters | Authenticated reporter can view own history | No deletion workflow yet |
 | Privacy notice acknowledgement | Avoid repeating the informational notice | Browser localStorage only (`version`, `acknowledgedAt`) | Clear browser storage | Until cleared or notice version changes |
+
+The proposed notice version is `2026-10-19.1`. Acknowledgement records that the informational notice was seen; it is not implemented or described as legal consent.
 
 No analytics, advertising tracker, or optional tracking consent flow was found in the reviewed frontend. This statement must be re-audited when third-party scripts are added.
 

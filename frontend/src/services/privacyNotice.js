@@ -1,4 +1,4 @@
-export const PRIVACY_NOTICE_VERSION = '2026-10-18.1'
+export const PRIVACY_NOTICE_VERSION = '2026-10-19.1'
 export const PRIVACY_NOTICE_KEY = 'csit-sheet:privacy-notice'
 
 export function readPrivacyAcknowledgement(storage = globalThis.localStorage) {

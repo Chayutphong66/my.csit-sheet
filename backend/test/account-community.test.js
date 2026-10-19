@@ -27,10 +27,24 @@ async function login(usernameOrEmail, password = 'User@1234') { return (await ap
 test('registration rejects a mismatched confirmation and forgot-password stays generic', async () => {
   const mismatch = await api('/auth/register', { method: 'POST', body: { username: 'confirmuser', email: 'confirm@example.com', password: 'CorrectHorse123', confirmPassword: 'DifferentHorse123', program: 'CS', cohort: '66' } })
   assert.equal(mismatch.response.status, 400); assert.match(mismatch.data.message, /do not match/i)
+  for (const [index, email] of [
+    'ผู้ใช้@example.com',
+    '"quoted"@example.com',
+    'first@example.com,second@example.com',
+    'member@example.com\r\nBcc: attacker@example.com'
+  ].entries()) {
+    const rejected = await api('/auth/register', { method: 'POST', body: { username: `blocked${index}`, email, password: 'CorrectHorse123', confirmPassword: 'CorrectHorse123', program: 'CS', cohort: '66' } })
+    assert.equal(rejected.response.status, 400)
+    assert.equal(rejected.data.message, 'email is invalid')
+    assert.equal(JSON.stringify(rejected.data).includes(email), false)
+  }
   const currentCohort = String((new Date().getFullYear() + 543) % 100).padStart(2, '0')
   const registered = await api('/auth/register', { method: 'POST', body: { username: 'emailflow', email: 'emailflow@example.com', password: 'CorrectHorse123', confirmPassword: 'CorrectHorse123', program: 'CS', cohort: currentCohort } })
   assert.equal(registered.response.status, 201); assert.equal(registered.data.emailDelivery, 'MOCKED'); assert.match(registered.data.message, /simulated/i)
   assert.equal((await db.prepare("SELECT status FROM email_deliveries WHERE recipient=? AND template='emailVerification'").get('emailflow@example.com')).status, 'MOCKED')
+  const resent = await api('/auth/resend-verification', { method: 'POST', body: { email: ' EmailFlow@Example.com ' } })
+  assert.equal(resent.response.status, 200)
+  assert.equal((await api('/auth/resend-verification', { method: 'POST', body: { email: '"emailflow"@example.com' } })).response.status, 400)
   const knownEmail = (await db.prepare("SELECT email FROM users WHERE username='student01'").get()).email
   const known = await api('/auth/forgot-password', { method: 'POST', body: { email: knownEmail } })
   const unknown = await api('/auth/forgot-password', { method: 'POST', body: { email: 'missing@example.com' } })
