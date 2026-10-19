@@ -293,7 +293,7 @@ try {
     await cdp('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false })
     await cdp('Network.clearBrowserCookies')
     freshNavigation = true
-    for (const [name, route] of [['starter', '/'], ['login', '/login'], ['register', '/register']]) {
+    for (const [name, route] of [['starter', '/'], ['login', '/login'], ['register', '/register'], ['privacy', '/privacy']]) {
       await navigate(route)
       if (name === 'register') {
         const registerIdentity = await evaluate(`(() => { const selects=[...document.querySelectorAll('form select')]; return { required: selects.map(item => item.required), programs: [...selects[0].options].map(item => item.value), cohorts: [...selects[1].options].map(item => item.value) } })()`)
@@ -417,7 +417,8 @@ try {
         await waitFor(`location.search.includes('status=APPROVED') && document.querySelectorAll('[data-review-status]').length > 0 && [...document.querySelectorAll('[data-review-status]')].every(e => e.dataset.reviewStatus === 'APPROVED')`)
         await capture('review-approved', width)
         if (width === 1440) {
-          await cdp('Page.reload')
+          await actor('admin1')
+          await navigate('/admin/request?status=APPROVED')
           await waitFor(`location.search.includes('status=APPROVED') && document.querySelectorAll('[data-review-status]').length > 0 && [...document.querySelectorAll('[data-review-status]')].every(e => e.dataset.reviewStatus === 'APPROVED')`)
         }
         await evaluate(`document.querySelector('[data-review-filter="REJECTED"]').click()`)

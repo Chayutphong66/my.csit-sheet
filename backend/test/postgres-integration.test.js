@@ -3,6 +3,7 @@ import test from 'node:test'
 import { once } from 'node:events'
 import { readdir } from 'node:fs/promises'
 import { migrationDirectory } from '../src/data/postgresMigrations.js'
+import { verifyPostgresFeedback } from './support/postgresFeedback.integration.js'
 
 // Never use DATABASE_URL or a production endpoint as an integration-test default.
 test('dedicated local PostgreSQL: migrations, constraints, transactions and concurrency guards', { skip: !process.env.TEST_DATABASE_URL && 'TEST_DATABASE_URL NOT PROVIDED' }, async () => {
@@ -124,6 +125,15 @@ test('dedicated local PostgreSQL: migrations, constraints, transactions and conc
     const retried = await db.prepare('SELECT status,attempt_count attemptCount,request_id requestId FROM bulk_upload_items WHERE job_id=? AND client_key=?').get(failedJob.id, 'retry-race')
     assert.equal(retried.status, 'READY'); assert.equal(Number(retried.attemptCount), 2); assert.ok(retried.requestId)
 
+    await verifyPostgresFeedback({
+      api, db, pool, withTransaction,
+      reporter: stored,
+      reporterToken: login.data.accessToken,
+      admin,
+      adminCredentials: { usernameOrEmail: 'pgfixtureadmin', password: 'FixtureAdmin123' },
+      approvedDocument: { type: 'Lecture', id: published[0].lectureId }
+    })
+
     const secondAdmin = await createUser({ id: crypto.randomUUID(), username: 'pgfixtureadmin2', email: 'admin2@example.invalid', password: hashPassword('FixtureAdmin123'), role: 'ADMIN' })
     const { changeUserStatus } = await import('../src/services/adminUser.service.js')
     const adminResults = await Promise.allSettled([
@@ -133,6 +143,7 @@ test('dedicated local PostgreSQL: migrations, constraints, transactions and conc
     assert.deepEqual(adminResults.map(result => result.status).sort(), ['fulfilled', 'rejected'])
     assert.match(adminResults.find(result => result.status === 'rejected').reason.message, /last active administrator/i)
     assert.equal(Number((await db.prepare("SELECT COUNT(*) count FROM users WHERE role='ADMIN' AND account_status='ACTIVE'").get()).count), 1)
+
   } finally {
     if (server) await new Promise(resolve => server.close(resolve))
     if (closeDatabase) await closeDatabase()
