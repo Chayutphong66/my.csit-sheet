@@ -13,7 +13,7 @@ process.env.DATABASE_PATH = path.join(mkdtempSync(path.join(tmpdir(), 'csit-acco
 const { default: app } = await import('../src/app.js')
 const { db, closeDatabase } = await import('../src/data/databaseClient.js')
 const { issueAccountToken } = await import('../src/repositories/accountToken.repository.js')
-const { listConnections } = await import('../src/repositories/community.repository.js')
+const { listConnections, notifyFollowersOfDocument } = await import('../src/repositories/community.repository.js')
 const server = app.listen(0, '127.0.0.1'); await once(server, 'listening')
 const base = `http://127.0.0.1:${server.address().port}/api`
 test.after(async () => { await new Promise(resolve => server.close(resolve)); await closeDatabase() })
@@ -92,6 +92,24 @@ test('follow constraints, privacy-safe counts, and follow/unfollow are consisten
   assert.equal((await api('/contributors/student01/follow', { method: 'PUT', token: user2, body: { following: false } })).data.followersCount, 0)
 })
 
+test('followed-document notification preserves the existing activity-email preference and delivery audit', async () => {
+  const uploader = await db.prepare("SELECT id FROM users WHERE username='student01'").get()
+  const follower = await db.prepare("SELECT id,email FROM users WHERE username='student02'").get()
+  await db.prepare('INSERT OR IGNORE INTO user_follows(follower_id,followed_id) VALUES(?,?)').run(follower.id, uploader.id)
+  await db.prepare('INSERT OR IGNORE INTO notification_preferences(user_id) VALUES(?)').run(follower.id)
+  await db.prepare('UPDATE notification_preferences SET followed_documents=1,activity_email=1 WHERE user_id=?').run(follower.id)
+
+  await notifyFollowersOfDocument({
+    uploaderId: uploader.id,
+    document: { id: 'smtp-regression-document', title: 'SMTP regression fixture', documentType: 'Sheet' }
+  })
+
+  const notification = await db.prepare("SELECT type FROM notifications WHERE user_id=? AND type='FOLLOWED_DOCUMENT' ORDER BY created_at DESC LIMIT 1").get(follower.id)
+  const delivery = await db.prepare("SELECT status FROM email_deliveries WHERE user_id=? AND template='followedDocument' ORDER BY created_at DESC LIMIT 1").get(follower.id)
+  assert.equal(notification.type, 'FOLLOWED_DOCUMENT')
+  assert.equal(delivery.status, 'MOCKED')
+})
+
 test('program changes require transactional administrator approval and keep history', async () => {
   const user = await login('student02'); const admin = await login('admin', 'Admin@1234')
   const before = await db.prepare("SELECT program_code FROM users WHERE username='student02'").get()
@@ -103,6 +121,7 @@ test('program changes require transactional administrator approval and keep hist
   const approved = await api(`/admin/profile-change-requests/${created.data.id}`, { method: 'PATCH', token: admin, body: { status: 'APPROVED' } })
   assert.equal(approved.response.status, 200)
   assert.equal((await db.prepare("SELECT program_code FROM users WHERE username='student02'").get()).program_code, requested)
+  assert.equal((await db.prepare("SELECT status FROM email_deliveries WHERE template='profileChangeDecision' ORDER BY created_at DESC LIMIT 1").get()).status, 'MOCKED')
   assert.equal((await api(`/admin/profile-change-requests/${created.data.id}`, { method: 'PATCH', token: admin, body: { status: 'REJECTED', reason: 'late' } })).response.status, 409)
 })
 
